@@ -23,9 +23,9 @@ export default defineConfig({
       reuseExistingServer: true,
     },
     {
-      command: "npx next dev --port 3000",
-      cwd: "apps/web",
-      port: 3000,
+      command: "npx vite --port 3002",
+      cwd: "apps/desktop",
+      port: 3002,
       reuseExistingServer: true,
     },
   ],
