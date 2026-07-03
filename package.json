@@ -15,6 +15,7 @@
     "test:report": "npx playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1"
+    "@playwright/test": "^1.61.1",
+    "@yao-pkg/pkg": "^6.21.0"
   }
 }

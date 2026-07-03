@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Personal Translator",
+  "version": "0.1.0",
+  "identifier": "com.personaltranslator.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:3002",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Personal Translator",
+        "width": 500,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "msi"
+    ],
+    "icon": [
+      "icons/128x128.png",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/server"
+    ],
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
+    }
+  }
+}
