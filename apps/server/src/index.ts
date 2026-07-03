@@ -1,16 +1,17 @@
 import dotenv from "dotenv";
 import { resolve } from "path";
+import { readFileSync, existsSync } from "fs";
 dotenv.config({ path: resolve(__dirname, "../../../.env.local") });
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import { TranslationEngine } from "./engine";
 import { createSTTProvider, createTranslationProvider, createTTSProvider } from "./providers/factory";
 
-async function main() {
+export async function main(options?: { port?: number; frontendPath?: string }) {
   const app = Fastify({ logger: true });
 
-  // Return JSON for all unhandled errors
   app.setErrorHandler((error: { message?: string; statusCode?: number }, request, reply) => {
     const message = error.message ?? "Internal Server Error";
     app.log.error(message);
@@ -19,7 +20,7 @@ async function main() {
 
   await app.register(cors, { origin: true });
   await app.register(multipart, {
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+    limits: { fileSize: 5 * 1024 * 1024 },
   });
 
   const apiKey = process.env.SARVAM_API_KEY;
@@ -69,16 +70,39 @@ async function main() {
     }
   });
 
-  const port = parseInt(process.env.PORT ?? "3001", 10);
+  const frontendPath = options?.frontendPath ?? process.env.FRONTEND_PATH;
+  if (frontendPath && existsSync(frontendPath)) {
+    await app.register(fastifyStatic, {
+      root: frontendPath,
+      prefix: "/",
+      wildcard: false,
+    });
+
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith("/api/")) {
+        return reply.status(404).send({ error: "Not found" });
+      }
+      try {
+        const content = readFileSync(resolve(frontendPath, "index.html"), "utf-8");
+        reply.type("text/html").send(content);
+      } catch {
+        reply.status(404).send({ error: "Not found" });
+      }
+    });
+  }
+
+  const port = options?.port ?? parseInt(process.env.PORT ?? "3001", 10);
   const host = process.env.HOST ?? "127.0.0.1";
 
-  try {
-    await app.listen({ port, host });
-    app.log.info(`Server listening on ${host}:${port}`);
-  } catch (err) {
-    app.log.error(err);
-    process.exit(1);
-  }
+  await app.listen({ port, host });
+  app.log.info(`Server listening on ${host}:${port}`);
+  return { port, host };
 }
 
-main();
+const frontendPath = process.env.FRONTEND_PATH;
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+
+main({ port, frontendPath }).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

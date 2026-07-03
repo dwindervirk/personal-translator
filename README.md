@@ -270,12 +270,57 @@ Accepts a WAV audio file and returns translated audio.
 
 ---
 
+## Building for Windows Standalone
+
+Package the desktop app as a standalone `.msi` installer with **Tauri**.
+
+### Prerequisites
+
+1. **Visual Studio 2022 Build Tools** with "Desktop development with C++" workload:
+   ```powershell
+   winget install Microsoft.VisualStudio.2022.BuildTools
+   # Then open "Visual Studio Installer" → Modify → add "Desktop development with C++"
+   ```
+2. **Rust** (already installed above)
+
+### Build Steps
+
+```bash
+# 1. Build the Vite frontend
+cd apps/desktop && npm run build
+
+# 2. Build the Fastify server TypeScript
+cd ../server && npx tsc
+
+# 3. Bundle the server into a standalone .exe
+npx pkg dist/index.js --target node22-win-x64 --output ../desktop/src-tauri/binaries/server-x86_64-pc-windows-msvc.exe
+
+# 4. Build the .msi installer
+cd ../desktop && npx tauri build
+```
+
+Output: `apps/desktop/src-tauri/target/release/bundle/msi/Personal Translator_0.1.0_x64_en-US.msi`
+
+Double-click to install — no terminal or Node.js needed on the user's machine.
+
+### Development Mode
+
+```bash
+# Terminal 1: Fastify backend (port 3001)
+cd apps/server && npx tsx src/index.ts
+
+# Terminal 2: Vite frontend (port 3002)
+cd apps/desktop && npm run dev
+```
+
+---
+
 ## Built With
 
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Turborepo | 2.10.2 | Monorepo build orchestration |
-| Next.js | 15.5.20 | React framework (App Router) |
+| Vite | 6.4 | Frontend build tool |
 | React | 19.1.0 | UI library |
 | Redux Toolkit | 2.8+ | State management |
 | Tailwind CSS | 4.1 | Utility-first CSS |
