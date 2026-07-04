@@ -112,24 +112,29 @@ npx playwright install chromium-headless-shell
 
 ### Configuration
 
-Copy the environment template and fill in your Sarvam API key:
+API keys are configured through the **Settings modal** in the app (gear icon ⚙). 
+No .env file editing required.
+
+If you prefer environment variables for development:
 
 ```bash
 cp .env.example .env.local
 ```
 
-Edit `.env.local`:
+Edit `.env.local` (optional — the UI Settings modal overrides this):
 
 ```ini
 PORT=3001
 HOST=127.0.0.1
-SARVAM_API_KEY=your_sarvam_api_key_here
+# SARVAM_API_KEY is optional — use the Settings UI instead
 SELECTED_STT_PROVIDER=sarvam
 SELECTED_TRANSLATION_PROVIDER=sarvam
 SELECTED_TTS_PROVIDER=sarvam
 ```
 
-> **Security:** `.env.local` is in `.gitignore` and will never be committed.
+> **Security:** API keys are entered in the Settings modal and stored locally.
+> `.env.local` is in `.gitignore` and will never be committed.
+> The compiled `.msi` installer contains zero hardcoded keys.
 
 ### Build
 
