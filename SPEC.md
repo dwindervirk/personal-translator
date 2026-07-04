@@ -7,7 +7,7 @@ This specification outlines the technical blueprint for an **Open-Source Persona
 ### Strategic Priorities
 * **Provider Agnosticism:** The software pipeline must isolate integration details behind abstract system interfaces. Swapping out the default vendor (Sarvam AI) for competitors (e.g., Deepgram, ElevenLabs, OpenAI, or local Whisper models) must require zero core rewrite.
 * **Low-Latency Loop Execution:** Audio conversion pipelines rely heavily on synchronous or streaming execution to provide natural conversation turnarounds ($< 1.5$ seconds overhead).
-* **Strict Security Boundaries:** API authentication parameters must remain securely isolated on a local application server layer to prevent credential bleed onto the public-facing client layout.
+* **Strict Security Boundaries:** API authentication parameters must remain securely isolated on the user's machine. API keys are entered through the application's UI (Settings modal), persisted to local storage, and passed server-side per-request. No secrets are embedded in compiled binaries or committed to version control.
 
 ---
 
@@ -206,20 +206,74 @@ npx playwright show-report
 
 ---
 
-## 7. Configuration Schema & Secrets Isolation
+## 7. UI-Based Configuration & Secrets Management
 
-Authentication requirements are maintained securely through standard local environment files.
+API keys are configured by the end user through the application's Settings modal. This approach ensures secrets remain on the user's machine and are never embedded in compiled binaries or committed to version control.
+
+### Settings Modal
+
+A gear icon (⚙) button in the main UI opens a Settings modal popup containing:
+
+| Control | Description |
+|---------|-------------|
+| API Key input | Masked password field (`type="password"`) with a show/hide toggle |
+| Provider selector | Dropdown for STT / Translation / TTS provider |
+| Save button | Persists the key to `localStorage` (web) / Tauri app data (desktop) and updates Redux store |
+| Clear button | Removes the saved key |
+| Close | Dismisses the modal (X button or Escape key) |
+
+### First-Run Experience
+
+On initial launch, if no API key is found in storage, the Settings modal auto-opens with a warning banner:
+
+> "A Sarvam API key is required for translation to work. Enter your key below to get started."
+
+### Data Flow
+
+```
+User enters key in Settings Modal
+           ↓
+Saved to localStorage / Redux Store
+           ↓
+MicButton reads key from Redux
+           ↓
+POST /api/translate
+  Headers: X-API-Key: sk_...
+  Body: multipart audio/wav
+           ↓
+Fastify backend reads X-API-Key header
+           ↓
+Creates provider instances dynamically with the key
+  new SarvamSTTProvider(key)
+  new SarvamTranslationProvider(key)
+  new SarvamTTSProvider(key)
+           ↓
+Pipeline executes: STT → Translate → TTS
+```
+
+### Fallback for Development
+
+A `.env.local` file is still supported during development as a convenience fallback:
 
 ```ini
-# .env.local Template
-PORT=3000
+PORT=3001
 HOST=127.0.0.1
-SARVAM_API_KEY=srvm_secret_your_production_subscription_key_here
+# SARVAM_API_KEY is optional — use the Settings UI instead
 SELECTED_STT_PROVIDER=sarvam
 SELECTED_TRANSLATION_PROVIDER=sarvam
 SELECTED_TTS_PROVIDER=sarvam
-
 ```
+
+If neither the `X-API-Key` header nor `SARVAM_API_KEY` env var is provided, the server returns a clear error: `{ "error": "API key is required. Set it in the Settings modal." }`
+
+### Security
+
+- **Compiled binaries:** The `.msi` installer contains zero hardcoded API keys
+- **Storage:** Keys are stored in the browser's `localStorage` (web) or Tauri's secure app data directory (desktop)
+- **Transit:** Keys travel from frontend to backend via HTTP headers over `localhost` only — never over the public network
+- **Version control:** `.env.local` is excluded by `.gitignore`; no secrets can be committed
+
+---
 
 This structural specification details the foundational architecture required to assemble an extensible, production-ready, localized multi-language speech utility.
 
