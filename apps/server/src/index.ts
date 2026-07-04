@@ -6,8 +6,10 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
+import { SarvamSTTProvider } from "./providers/sarvam/stt";
+import { SarvamTranslationProvider } from "./providers/sarvam/translate";
+import { SarvamTTSProvider } from "./providers/sarvam/tts";
 import { TranslationEngine } from "./engine";
-import { createSTTProvider, createTranslationProvider, createTTSProvider } from "./providers/factory";
 
 export async function main(options?: { port?: number; frontendPath?: string }) {
   const app = Fastify({ logger: true });
@@ -23,22 +25,14 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
     limits: { fileSize: 5 * 1024 * 1024 },
   });
 
-  const apiKey = process.env.SARVAM_API_KEY;
-  if (!apiKey) {
-    throw new Error("SARVAM_API_KEY is not set in environment");
-  }
-
-  const engine = new TranslationEngine(
-    createSTTProvider(process.env.SELECTED_STT_PROVIDER ?? "sarvam", apiKey),
-    createTranslationProvider(process.env.SELECTED_TRANSLATION_PROVIDER ?? "sarvam", apiKey),
-    createTTSProvider(process.env.SELECTED_TTS_PROVIDER ?? "sarvam", apiKey)
-  );
-
   app.post<{
     Querystring: {
       targetLanguage?: string;
       sourceLanguage?: string;
       voiceId?: string;
+    };
+    Headers: {
+      "x-api-key"?: string;
     };
   }>("/api/translate", async (request, reply) => {
     try {
@@ -47,11 +41,23 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
         return reply.status(400).send({ error: "No audio file provided" });
       }
 
-      const audioBuffer = await data.toBuffer();
+      const apiKey = request.headers["x-api-key"] ?? process.env.SARVAM_API_KEY;
+      if (!apiKey) {
+        return reply.status(401).send({
+          error: "API key is required. Set it in the Settings modal or via SARVAM_API_KEY env var.",
+        });
+      }
 
+      const audioBuffer = await data.toBuffer();
       const targetLanguage = request.query.targetLanguage ?? "en-IN";
       const sourceLanguage = request.query.sourceLanguage;
       const voiceId = request.query.voiceId;
+
+      const sttProvider = new SarvamSTTProvider(apiKey);
+      const translationProvider = new SarvamTranslationProvider(apiKey);
+      const ttsProvider = new SarvamTTSProvider(apiKey);
+
+      const engine = new TranslationEngine(sttProvider, translationProvider, ttsProvider);
 
       const translatedAudio = await engine.translateAudio(audioBuffer, {
         sourceLanguage,
