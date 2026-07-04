@@ -6,3 +6,4 @@ dist
 *.tsbuildinfo
 *.log
 test-results
+AGENTS.md
