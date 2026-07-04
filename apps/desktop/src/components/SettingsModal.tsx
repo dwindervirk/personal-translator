@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { setApiKey, clearApiKey, setShowSettings } from "@/store/translatorSlice";
+import { saveApiKey, clearApiKeyAction, setShowSettings } from "@/store/translatorSlice";
 
 export function SettingsModal() {
   const dispatch = useAppDispatch();
@@ -17,13 +17,13 @@ export function SettingsModal() {
   const handleSave = useCallback(() => {
     const trimmed = inputValue.trim();
     if (trimmed) {
-      dispatch(setApiKey(trimmed));
+      dispatch(saveApiKey(trimmed));
     }
   }, [inputValue, dispatch]);
 
   const handleClear = useCallback(() => {
     setInputValue("");
-    dispatch(clearApiKey());
+    dispatch(clearApiKeyAction());
   }, [dispatch]);
 
   const handleClose = useCallback(() => {

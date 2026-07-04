@@ -40,6 +40,9 @@
       "wix": {
         "language": "en-US"
       }
+    },
+    "android": {
+      "minSdkVersion": 26
     }
   }
 }
