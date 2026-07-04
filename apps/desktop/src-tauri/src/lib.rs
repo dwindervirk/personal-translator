@@ -14,18 +14,12 @@ pub fn run() {
                 )?;
             } else {
                 let port = portpicker::pick_unused_port().expect("no free port found");
-                let script_path = std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-                    .unwrap_or_default()
-                    .join("dist");
 
                 let (mut rx, _child) = app
                     .shell()
                     .sidecar("server")
                     .expect("failed to create sidecar")
                     .env("PORT", port.to_string())
-                    .env("FRONTEND_PATH", script_path.to_str().unwrap_or(""))
                     .env("HOST", "127.0.0.1")
                     .spawn()
                     .expect("failed to spawn sidecar server");
@@ -49,8 +43,7 @@ pub fn run() {
                 });
 
                 if let Some(window) = app.get_webview_window("main") {
-                    let url_str = format!("http://127.0.0.1:{}", port);
-                    let _ = window.navigate(url::Url::parse(&url_str).unwrap());
+                    let _ = window.eval(&format!("window.__API_PORT__ = {};", port));
                 }
             }
 

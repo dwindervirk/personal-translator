@@ -37,13 +37,17 @@ function Spinner() {
 
 export function MicButton() {
   const dispatch = useAppDispatch();
-  const { status, sourceLanguage, targetLanguage } = useAppSelector(
+  const { status, sourceLanguage, targetLanguage, apiKey } = useAppSelector(
     (state) => state.translator
   );
   const recorderRef = useRef<MediaRecorder | null>(null);
   const promiseRef = useRef<Promise<Blob> | null>(null);
 
   const handleStart = useCallback(async () => {
+    if (!apiKey) {
+      dispatch(setError("No API key configured. Open Settings (gear icon) to add one."));
+      return;
+    }
     try {
       dispatch(setStatus("RECORDING"));
       const recorder = await captureMicrophone();
@@ -52,7 +56,7 @@ export function MicButton() {
     } catch {
       dispatch(setError("Microphone access denied"));
     }
-  }, [dispatch]);
+  }, [dispatch, apiKey]);
 
   const handleStop = useCallback(async () => {
     if (!recorderRef.current || !promiseRef.current) return;
@@ -72,8 +76,13 @@ export function MicButton() {
         params.set("sourceLanguage", sourceLanguage);
       }
 
-      const response = await fetch(`/api/translate?${params}`, {
+      const apiBase = (window as any).__API_PORT__
+        ? `http://127.0.0.1:${(window as any).__API_PORT__}`
+        : "";
+
+      const response = await fetch(`${apiBase}/api/translate?${params}`, {
         method: "POST",
+        headers: apiKey ? { "X-API-Key": apiKey } : {},
         body: formData,
       });
 
@@ -99,7 +108,7 @@ export function MicButton() {
       recorderRef.current = null;
       promiseRef.current = null;
     }
-  }, [dispatch, sourceLanguage, targetLanguage]);
+  }, [dispatch, sourceLanguage, targetLanguage, apiKey]);
 
   const isRecording = status === "RECORDING";
   const isTranslating = status === "TRANSLATING";

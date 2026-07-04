@@ -13,7 +13,10 @@ call npx tsc
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
 echo [3/4] Bundling server sidecar...
-call npx pkg dist/index.js --target node22-win-x64 --output "..\desktop\src-tauri\binaries\server-x86_64-pc-windows-msvc.exe"
+cd /d "C:\Users\preet\Documents\projects\personal-translator\apps\server"
+call npx esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/bundle.js 2>&1
+if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
+call npx pkg dist/bundle.js --target node22-win-x64 --output "..\desktop\src-tauri\binaries\server-x86_64-pc-windows-msvc.exe" 2>&1
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 
 echo [4/4] Building Tauri .msi installer...
