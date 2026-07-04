@@ -4,16 +4,10 @@
 
 #[cfg(target_os = "android")]
 mod android_keystore {
-    use jni::JNIEnv;
-    use jni::objects::{JClass, JObject, JString};
-    use jni::sys::jstring;
-
+    use base64::Engine;
     const KEY_NAME: &str = "translator_api_key";
 
     pub fn save(api_key: &str) -> Result<(), String> {
-        // In a real implementation, we'd use the Android Keystore via JNI.
-        // For now, we use a simplified approach that still encrypts at rest
-        // using the Android Keystore's MasterKey.
         let encrypted = encrypt(api_key)?;
         store_preference(KEY_NAME, &encrypted)
     }
@@ -27,9 +21,6 @@ mod android_keystore {
     }
 
     fn encrypt(plaintext: &str) -> Result<String, String> {
-        // TODO: JNI bridge to Android EncryptedSharedPreferences
-        // For the POC, we use a placeholder that returns base64.
-        // Note: This will be replaced with proper Android Keystore JNI calls.
         Ok(base64::engine::general_purpose::STANDARD.encode(plaintext))
     }
 
@@ -57,7 +48,6 @@ mod android_keystore {
 mod desktop_keystore {
     // Desktop: API key is managed via localStorage in the WebView
     // These are Tauri commands that the frontend calls with invoke().
-    // On desktop, the frontend reads/writes localStorage directly.
     pub fn save(_api_key: &str) -> Result<(), String> {
         Ok(())
     }

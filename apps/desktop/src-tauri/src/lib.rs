@@ -1,5 +1,4 @@
 use tauri::Manager;
-use tauri_plugin_shell::ShellExt;
 
 mod keystore;
 
@@ -8,12 +7,7 @@ mod server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
-
-    #[cfg(not(target_os = "android"))]
-    let builder = builder.plugin(tauri_plugin_shell::init());
-
-    builder
+    tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![save_api_key, get_api_key, clear_api_key])
         .setup(|app| {
             #[cfg(debug_assertions)]
@@ -37,21 +31,28 @@ pub fn run() {
             if !cfg!(debug_assertions) {
                 let port = portpicker::pick_unused_port().expect("no free port found");
 
-                let (mut rx, _child) = app
-                    .shell()
-                    .sidecar("server")
-                    .expect("failed to create sidecar")
+                let exe_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                    .unwrap_or_default();
+
+                let sidecar_path = exe_dir.join("server.exe");
+
+                let mut child = Command::new(&sidecar_path)
                     .env("PORT", port.to_string())
                     .env("HOST", "127.0.0.1")
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
                     .spawn()
-                    .expect("failed to spawn sidecar server");
+                    .expect("failed to spawn server.exe");
 
+                let stdout = child.stdout.take().unwrap();
                 let port_clone = port;
                 std::thread::spawn(move || {
+                    let reader = std::io::BufReader::new(stdout);
                     let start = std::time::Instant::now();
-                    while let Some(event) = rx.blocking_recv() {
-                        if let tauri_plugin_shell::process::CommandEvent::Stdout(line) = event {
-                            let output = String::from_utf8_lossy(&line);
+                    for line in reader.lines() {
+                        if let Ok(output) = line {
                             if output.contains("Server listening") {
                                 log::info!("Sidecar ready on port {}", port_clone);
                                 break;

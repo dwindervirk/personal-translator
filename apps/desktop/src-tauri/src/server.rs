@@ -1,7 +1,7 @@
 use axum::{
-    extract::Multipart,
+    extract::{Multipart, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{Html, IntoResponse},
     routing::post,
     Json, Router,
 };
@@ -86,7 +86,6 @@ impl SarvamTranslate {
             .client
             .post("https://api.sarvam.ai/translate")
             .header("api-subscription-key", api_key)
-            .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .await
@@ -130,7 +129,6 @@ impl SarvamTTS {
             .client
             .post("https://api.sarvam.ai/text-to-speech")
             .header("api-subscription-key", api_key)
-            .header("Content-Type", "application/json")
             .json(&body)
             .send()
             .await
@@ -235,68 +233,68 @@ pub fn start_server() -> u16 {
     port
 }
 
+#[derive(Deserialize)]
+struct TranslateQuery {
+    target_language: Option<String>,
+    source_language: Option<String>,
+    voice_id: Option<String>,
+}
+
 async fn translate_handler(
-    engine: Arc<TranslationEngine>,
+    State(engine): State<Arc<TranslationEngine>>,
     headers: axum::http::HeaderMap,
-    mut multipart: Multipart,
-) -> impl IntoResponse {
-    let api_key = match headers
+    multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let api_key = headers
         .get("x-api-key")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
-    {
-        Some(key) => key,
-        None => {
-            return (
+        .ok_or_else(|| {
+            (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({
                     "error": "API key is required. Set it in the Settings modal."
                 })),
             )
-        }
-    };
+        })?;
 
+    // Note: Multipart extraction takes ownership, so we need to use an inner function
+    let result = handle_translate(engine, &api_key, multipart).await;
+    match result {
+        Ok(audio_bytes) => {
+            let base64_audio = base64::engine::general_purpose::STANDARD.encode(&audio_bytes);
+            Ok(Json(serde_json::json!({
+                "audio": base64_audio,
+                "content_type": "audio/wav"
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )),
+    }
+}
+
+async fn handle_translate(
+    engine: Arc<TranslationEngine>,
+    api_key: &str,
+    mut multipart: Multipart,
+) -> Result<Vec<u8>, String> {
     let mut audio_data: Option<Vec<u8>> = None;
-    let mut target_language = String::from("en-IN");
-    let mut source_language: Option<String> = None;
+    let target_language = String::from("en-IN");
+    let source_language: Option<String> = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
             audio_data = Some(field.bytes().await.unwrap_or_default().to_vec());
+            break;
         }
     }
 
-    let audio = match audio_data {
-        Some(data) => data,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": "No audio file provided" })),
-            )
-        }
-    };
+    let audio = audio_data.ok_or_else(|| "No audio file provided".to_string())?;
 
-    match engine
-        .translate_audio(&api_key, &audio, source_language.as_deref(), &target_language)
+    engine
+        .translate_audio(api_key, &audio, source_language.as_deref(), &target_language)
         .await
-    {
-        Ok(audio_bytes) => {
-            let headers = [(
-                axum::http::header::CONTENT_TYPE,
-                "audio/wav",
-            )];
-            (StatusCode::OK, headers, axum::response::Body::from(audio_bytes))
-        }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "application/json",
-            )],
-            axum::response::Body::from(
-                serde_json::json!({ "error": e }).to_string(),
-            ),
-        ),
-    }
 }
