@@ -7,9 +7,17 @@ function selects(page: Page) {
   return { source: all.nth(0), target: all.nth(1) };
 }
 
+async function setApiKey(page: Page) {
+  await page.evaluate(() => {
+    localStorage.setItem("translator_api_key", "test-key");
+  });
+}
+
 test.describe("Personal Translator - UI Elements", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE_URL);
+    // close the settings modal by pressing Escape
+    await page.keyboard.press("Escape");
   });
 
   test("page loads with correct title", async ({ page }) => {
@@ -33,9 +41,23 @@ test.describe("Personal Translator - UI Elements", () => {
   });
 });
 
+test.describe("Personal Translator - Settings Modal", () => {
+  test("settings modal opens on first run and can save a key", async ({ page }) => {
+    await page.goto(BASE_URL);
+    await expect(page.getByText("Sarvam API Key", { exact: true })).toBeVisible();
+    await page.fill('input[type="password"]', "sk_test_key");
+    await page.getByRole("button", { name: /save/i }).click();
+    await page.waitForTimeout(200);
+    await expect(page.getByText("Sarvam API Key", { exact: true })).not.toBeVisible();
+  });
+});
+
 test.describe("Personal Translator - Recording Flow", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE_URL);
+    await setApiKey(page);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
   });
 
   test("clicking start recording changes state", async ({ page }) => {
@@ -62,6 +84,10 @@ test.describe("Personal Translator - Recording Flow", () => {
 test.describe("Personal Translator - Pipeline End-to-End", () => {
   test("capture → translate completes without crash", async ({ page }) => {
     await page.goto(BASE_URL);
+    await setApiKey(page);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+
     await page.getByRole("button", { name: /start recording/i }).click();
     await expect(
       page.getByRole("button", { name: /stop recording/i })

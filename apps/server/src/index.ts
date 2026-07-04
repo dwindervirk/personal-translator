@@ -1,16 +1,19 @@
 import dotenv from "dotenv";
 import { resolve } from "path";
+import { readFileSync, existsSync } from "fs";
 dotenv.config({ path: resolve(__dirname, "../../../.env.local") });
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
+import { SarvamSTTProvider } from "./providers/sarvam/stt";
+import { SarvamTranslationProvider } from "./providers/sarvam/translate";
+import { SarvamTTSProvider } from "./providers/sarvam/tts";
 import { TranslationEngine } from "./engine";
-import { createSTTProvider, createTranslationProvider, createTTSProvider } from "./providers/factory";
 
-async function main() {
+export async function main(options?: { port?: number; frontendPath?: string }) {
   const app = Fastify({ logger: true });
 
-  // Return JSON for all unhandled errors
   app.setErrorHandler((error: { message?: string; statusCode?: number }, request, reply) => {
     const message = error.message ?? "Internal Server Error";
     app.log.error(message);
@@ -19,25 +22,17 @@ async function main() {
 
   await app.register(cors, { origin: true });
   await app.register(multipart, {
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+    limits: { fileSize: 5 * 1024 * 1024 },
   });
-
-  const apiKey = process.env.SARVAM_API_KEY;
-  if (!apiKey) {
-    throw new Error("SARVAM_API_KEY is not set in environment");
-  }
-
-  const engine = new TranslationEngine(
-    createSTTProvider(process.env.SELECTED_STT_PROVIDER ?? "sarvam", apiKey),
-    createTranslationProvider(process.env.SELECTED_TRANSLATION_PROVIDER ?? "sarvam", apiKey),
-    createTTSProvider(process.env.SELECTED_TTS_PROVIDER ?? "sarvam", apiKey)
-  );
 
   app.post<{
     Querystring: {
       targetLanguage?: string;
       sourceLanguage?: string;
       voiceId?: string;
+    };
+    Headers: {
+      "x-api-key"?: string;
     };
   }>("/api/translate", async (request, reply) => {
     try {
@@ -46,11 +41,23 @@ async function main() {
         return reply.status(400).send({ error: "No audio file provided" });
       }
 
-      const audioBuffer = await data.toBuffer();
+      const apiKey = request.headers["x-api-key"] ?? process.env.SARVAM_API_KEY;
+      if (!apiKey) {
+        return reply.status(401).send({
+          error: "API key is required. Set it in the Settings modal or via SARVAM_API_KEY env var.",
+        });
+      }
 
+      const audioBuffer = await data.toBuffer();
       const targetLanguage = request.query.targetLanguage ?? "en-IN";
       const sourceLanguage = request.query.sourceLanguage;
       const voiceId = request.query.voiceId;
+
+      const sttProvider = new SarvamSTTProvider(apiKey);
+      const translationProvider = new SarvamTranslationProvider(apiKey);
+      const ttsProvider = new SarvamTTSProvider(apiKey);
+
+      const engine = new TranslationEngine(sttProvider, translationProvider, ttsProvider);
 
       const translatedAudio = await engine.translateAudio(audioBuffer, {
         sourceLanguage,
@@ -69,16 +76,39 @@ async function main() {
     }
   });
 
-  const port = parseInt(process.env.PORT ?? "3001", 10);
+  const frontendPath = options?.frontendPath ?? process.env.FRONTEND_PATH;
+  if (frontendPath && existsSync(frontendPath)) {
+    await app.register(fastifyStatic, {
+      root: frontendPath,
+      prefix: "/",
+      wildcard: false,
+    });
+
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith("/api/")) {
+        return reply.status(404).send({ error: "Not found" });
+      }
+      try {
+        const content = readFileSync(resolve(frontendPath, "index.html"), "utf-8");
+        reply.type("text/html").send(content);
+      } catch {
+        reply.status(404).send({ error: "Not found" });
+      }
+    });
+  }
+
+  const port = options?.port ?? parseInt(process.env.PORT ?? "3001", 10);
   const host = process.env.HOST ?? "127.0.0.1";
 
-  try {
-    await app.listen({ port, host });
-    app.log.info(`Server listening on ${host}:${port}`);
-  } catch (err) {
-    app.log.error(err);
-    process.exit(1);
-  }
+  await app.listen({ port, host });
+  app.log.info(`Server listening on ${host}:${port}`);
+  return { port, host };
 }
 
-main();
+const frontendPath = process.env.FRONTEND_PATH;
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : undefined;
+
+main({ port, frontendPath }).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
