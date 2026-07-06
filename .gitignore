@@ -7,3 +7,4 @@ dist
 *.log
 test-results
 AGENTS.md
+*.jks
