@@ -275,6 +275,61 @@ If neither the `X-API-Key` header nor `SARVAM_API_KEY` env var is provided, the 
 
 ---
 
+## 8. Android Platform (Tauri v2)
+
+The application targets Android as a fully standalone APK via **Tauri v2's native Android support**. The same React frontend (Vite build) runs in the Tauri WebView, while an embedded **Rust HTTP server** using `axum` handles the translation pipeline directly on the device — no external backend required.
+
+### Android Architecture
+
+```
+Android APK
+┌────────────────────────────────────────────┐
+│  Tauri WebView (React Vite app)            │
+│  ├── Mic recording (MediaRecorder)         │
+│  ├── Settings modal for API key            │
+│  ├── fetch() → http://127.0.0.1:<port>    │
+│  └── AudioContext playback                 │
+└──────────────┬─────────────────────────────┘
+               │
+┌──────────────▼────────────────────────────┐
+│  Embedded Rust Backend (axum HTTP server)  │
+│  ├── Starts on a random loopback port     │
+│  ├── Serves Vite frontend from mem        │
+│  ├── POST /api/translate                  │
+│  │   ├── STT: reqwest → sarvam.ai         │
+│  │   ├── Translate: reqwest → sarvam.ai   │
+│  │   └── TTS: reqwest → base64 decode     │
+│  └── X-API-Key per request               │
+└────────────────────────────────────────────┘
+```
+
+### Dual Implementation Strategy
+
+| Platform | Backend | Language |
+|----------|---------|----------|
+| **Windows** (desktop) | Fastify server (sidecar `.exe`) | TypeScript |
+| **Android** (mobile) | Embedded axum server (in APK) | Rust |
+
+Both implementations call the same Sarvam AI REST endpoints. The Rust port is approximately 250 lines covering:
+- `SarvamSTT` — multipart form POST → JSON response
+- `SarvamTranslate` — JSON POST → translated text
+- `SarvamTTS` — JSON POST → base64-decoded WAV audio
+- `TranslationEngine` — sequential pipeline orchestrator
+
+### API Key Encryption (Android Keystore)
+
+On Android, the API key is stored using **Android Keystore** via a custom Tauri command:
+- Key is encrypted with AES-256-GCM using a per-installation master key
+- Storage via `EncryptedSharedPreferences` bridged through JNI
+- On desktop, `localStorage` continues to be used (unchanged behavior)
+- Tauri commands: `save_api_key(key)` / `get_api_key()`
+
+### Platform Detection
+
+The Rust code in `lib.rs` uses `#[cfg(target_os = "android")]` to branch:
+- **Android:** Start embedded axum HTTP server, inject `window.__API_PORT__` into WebView
+- **Desktop (Windows):** Start Node.js sidecar (existing behavior, unchanged)
+
 This structural specification details the foundational architecture required to assemble an extensible, production-ready, localized multi-language speech utility.
 
 ```
