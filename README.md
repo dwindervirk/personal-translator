@@ -58,32 +58,34 @@ personal-translator/
 ├── playwright.config.ts      # Playwright with fake mic flags
 ├── .env.example              # Environment variable template
 ├── tsconfig.base.json        # Shared TS strict config
+├── build-msi.bat             # Windows .msi build script
 ├── apps/
 │   ├── server/               # Fastify backend (@repo/server)
 │   │   └── src/
 │   │       ├── index.ts      # Server entry, route handler
 │   │       ├── engine.ts     # TranslationEngine orchestrator
 │   │       └── providers/
-│   │           ├── factory.ts        # Provider factory (env-driven)
-│   │           └── sarvam/           # Sarvam AI implementations
-│   │               ├── stt.ts        # Speech-to-text (saaras:v3)
-│   │               ├── translate.ts  # Translation (mayura:v1)
-│   │               └── tts.ts        # Text-to-speech (bulbul:v3)
-│   └── web/                  # Next.js frontend (@repo/web)
-│       └── src/
-│           ├── app/          # App Router layout + pages
-│           ├── components/   # MicButton, LanguageSelect, StatusBar
-│           ├── store/        # Redux Toolkit (translator slice)
-│           └── lib/          # audio.ts, languages.ts
+│   │           ├── factory.ts      # Provider factory (env-driven)
+│   │           └── sarvam/         # Sarvam AI implementations
+│   │               ├── stt.ts      # Speech-to-text (saaras:v3)
+│   │               ├── translate.ts# Translation (mayura:v1)
+│   │               └── tts.ts      # Text-to-speech (bulbul:v3)
+│   └── desktop/              # Vite + React frontend + Tauri
+│       ├── src/              # React app (components, store, lib)
+│       ├── src-tauri/        # Tauri Rust backend
+│       │   ├── src/
+│       │   │   ├── lib.rs        # Tauri app entry, commands
+│       │   │   ├── server.rs     # Embedded HTTP server (frontend)
+│       │   │   ├── translate.rs  # TranslationEngine (Rust port)
+│       │   │   └── keystore.rs   # API key encryption stubs
+│       │   └── gen/android/  # Android Gradle project
+│       ├── vite.config.ts
+│       └── package.json
 ├── packages/
 │   └── shared/               # Shared TypeScript interfaces
-│       └── src/
-│           └── interfaces.ts # ISTTProvider, ITranslationProvider, ITTSProvider
-├── tests/
-│   ├── e2e/                  # Playwright test specifications
-│   └── fixtures/             # Synthetic WAV for fake mic input
-└── scripts/
-    └── generate-fixture.ts   # Generates synthetic WAV file
+└── tests/
+    ├── e2e/                  # Playwright test specifications
+    └── fixtures/             # Synthetic WAV for fake mic input
 ```
 
 ---
@@ -156,13 +158,13 @@ cd apps/server
 npx tsx src/index.ts
 ```
 
-**Terminal 2 — Frontend (Next.js on port 3000):**
+**Terminal 2 — Frontend (Vite on port 3002):**
 ```bash
-cd apps/web
-npx next dev --port 3000
+cd apps/desktop
+npm run dev
 ```
 
-Then open **http://localhost:3000** in your browser.
+Then open **http://localhost:3002** in your browser.
 
 ---
 
@@ -320,6 +322,95 @@ cd apps/desktop && npm run dev
 
 ---
 
+## Building for Android
+
+Package as a standalone APK with **Tauri v2's native Android support**. The app runs completely standalone on the device — an embedded Rust HTTP server serves the frontend and handles translation via Sarvam APIs.
+
+### Architecture (Android)
+
+```
+Android APK
+┌────────────────────────────────────────────┐
+│  Tauri WebView (React Vite app)            │
+│  ├── Mic recording (MediaRecorder)         │
+│  ├── Settings modal for API key            │
+│  ├── Tauri IPC → Rust translate_audio()    │
+│  └── AudioContext playback                 │
+└──────────────┬─────────────────────────────┘
+               │ IPC
+┌──────────────▼────────────────────────────┐
+│  Embedded Rust Backend (Tauri command)     │
+│  ├── STT: reqwest → sarvam.ai             │
+│  ├── Translate: reqwest → sarvam.ai       │
+│  ├── TTS: reqwest → base64 decode         │
+│  └── API key: EncryptedSharedPreferences  │
+└────────────────────────────────────────────┘
+```
+
+### Prerequisites
+
+1. **Java JDK 17+** (Temurin recommended):
+   ```powershell
+   winget install EclipseAdoptium.Temurin.17.JDK
+   ```
+
+2. **Android SDK** (command-line tools):
+   ```powershell
+   # Download and extract command-line tools
+   curl.exe -L -o "$env:TEMP\cmdline-tools.zip" "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip"
+   Expand-Archive "$env:TEMP\cmdline-tools.zip" -DestinationPath "$env:USERPROFILE\Android\Sdk\cmdline-tools\latest\" -Force
+   # Install platform + NDK
+   $env:ANDROID_HOME\cmdline-tools\latest\bin\sdkmanager.bat "platforms;android-34" "ndk;27.0.12077973" "platform-tools"
+   ```
+
+3. **Rust Android targets**:
+   ```powershell
+   rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+   ```
+
+### Build APK
+
+```powershell
+# Set environment variables
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.19.10-hotspot"
+$env:ANDROID_HOME = "$env:USERPROFILE\Android\Sdk"
+
+# Build the Vite frontend
+cd apps/desktop
+npm run build
+
+# Build the Rust library for Android
+cd src-tauri
+$env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = "aarch64-linux-android21-clang.cmd"
+cargo build --target aarch64-linux-android --release --lib
+
+# Copy the library to the Android project
+Copy-Item "target/aarch64-linux-android/release/libapp_lib.so" "gen/android/app/src/main/jniLibs/arm64-v8a/libapp_lib.so" -Force
+
+# Build the APK
+cd gen/android
+gradlew assembleArm64Release -x :app:rustBuildArm64Debug -x :app:rustBuildArmDebug -x :app:rustBuildArmRelease
+```
+
+Output: `apps/desktop/src-tauri/gen/android/app/build/outputs/apk/arm64/release/app-arm64-release.apk`
+
+### Install on Device
+
+```powershell
+# Enable Developer Options and USB Debugging on your phone
+# Connect via USB
+$env:ANDROID_HOME\platform-tools\adb.exe install -r apps\desktop\src-tauri\gen\android\app\build\outputs\apk\arm64\release\app-arm64-release.apk
+```
+
+The app appears as **"Personal Translator"** in your app drawer. On first launch:
+1. Grant the **RECORD_AUDIO** permission prompt
+2. Tap the gear icon (⚙) → enter your Sarvam API key → **Save**
+3. Select source/target languages
+4. Tap **Start Recording**, grant the browser mic prompt, speak
+5. Translated audio plays back through your device speakers
+
+---
+
 ## Built With
 
 | Tool | Version | Purpose |
@@ -332,8 +423,9 @@ cd apps/desktop && npm run dev
 | Fastify | 5.3 | Backend HTTP framework |
 | TypeScript | 5.8 | Type safety |
 | Playwright | 1.61.1 | E2E testing |
-| @fastify/multipart | 9.x | Multipart file handling |
-| dotenv | 16.x | Environment configuration |
+| Tauri | 2.11 | Desktop + Android app wrapper |
+| Axum (Rust) | 0.8 | Embedded HTTP server |
+| reqwest (Rust) | 0.12 | HTTP client for Sarvam APIs |
 
 ---
 
