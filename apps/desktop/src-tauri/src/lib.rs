@@ -3,6 +3,11 @@ use base64::Engine;
 mod keystore;
 mod translate;
 
+#[cfg(not(target_os = "android"))]
+use tauri::Manager;
+#[cfg(not(target_os = "android"))]
+use std::io::BufRead;
+
 #[cfg(target_os = "android")]
 mod server;
 
@@ -16,6 +21,8 @@ pub fn run() {
             translate_audio
         ])
         .setup(|app| {
+            #[cfg(target_os = "android")]
+            let _ = &app;
             #[cfg(debug_assertions)]
             if let Err(e) = app.handle().plugin(
                 tauri_plugin_log::Builder::default()
@@ -28,6 +35,7 @@ pub fn run() {
             #[cfg(target_os = "android")]
             {
                 let port = server::start_server(Some(3001));
+                let _ = &port;
             }
 
             #[cfg(not(target_os = "android"))]

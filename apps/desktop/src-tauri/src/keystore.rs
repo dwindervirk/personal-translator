@@ -31,7 +31,7 @@ mod android_keystore {
         String::from_utf8(bytes).map_err(|e| format!("UTF8 error: {}", e))
     }
 
-    fn store_preference(key: &str, value: &str) -> Result<(), String> {
+    fn store_preference(key: &str, _value: &str) -> Result<(), String> {
         // TODO: Native Android SharedPreferences via JNI
         log::info!("[Keystore] Stored key: {}", key);
         Ok(())
