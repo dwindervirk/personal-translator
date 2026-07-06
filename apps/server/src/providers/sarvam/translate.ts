@@ -1,4 +1,5 @@
 import type { ITranslationProvider } from "@repo/shared";
+import { throwSarvamError } from "./errors";
 
 export class SarvamTranslationProvider implements ITranslationProvider {
   private apiKey: string;
@@ -29,7 +30,7 @@ export class SarvamTranslationProvider implements ITranslationProvider {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Sarvam Translation failed (${response.status}): ${error}`);
+      throwSarvamError(response.status, error);
     }
 
     const result = await response.json() as {

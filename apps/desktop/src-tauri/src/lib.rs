@@ -100,6 +100,8 @@ fn clear_api_key() -> Result<(), String> {
     keystore::clear()
 }
 
+const MAX_RETRIES: u32 = 3;
+
 #[tauri::command]
 async fn translate_audio(api_key: String, audio_b64: String, target_language: String) -> Result<String, String> {
     let audio_data = base64::engine::general_purpose::STANDARD
@@ -107,7 +109,24 @@ async fn translate_audio(api_key: String, audio_b64: String, target_language: St
         .map_err(|e| format!("Invalid base64 audio: {}", e))?;
 
     let engine = translate::TranslationEngine::new();
-    let audio_bytes = engine.translate_audio(&api_key, &audio_data, None, &target_language).await?;
+    let mut last_error = String::new();
 
-    Ok(base64::engine::general_purpose::STANDARD.encode(&audio_bytes))
+    for attempt in 0..MAX_RETRIES {
+        let result = engine.translate_audio(&api_key, &audio_data, None, &target_language).await;
+        match &result {
+            Ok(audio_bytes) => {
+                return Ok(base64::engine::general_purpose::STANDARD.encode(audio_bytes));
+            }
+            Err(e) if e.starts_with("RATE_LIMIT:") && attempt < MAX_RETRIES - 1 => {
+                let delay = std::time::Duration::from_secs((2 * (attempt + 1)).into());
+                tokio::time::sleep(delay).await;
+                last_error = e.clone();
+            }
+            Err(e) => {
+                return Err(e.clone());
+            }
+        }
+    }
+
+    Err(last_error)
 }

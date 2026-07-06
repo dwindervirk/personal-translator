@@ -1,4 +1,5 @@
 import type { ISTTProvider } from "@repo/shared";
+import { throwSarvamError } from "./errors";
 
 export class SarvamSTTProvider implements ISTTProvider {
   private apiKey: string;
@@ -25,7 +26,7 @@ export class SarvamSTTProvider implements ISTTProvider {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Sarvam STT failed (${response.status}): ${error}`);
+      throwSarvamError(response.status, error);
     }
 
     const result = await response.json() as {

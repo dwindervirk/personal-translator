@@ -10,6 +10,29 @@ import { SarvamSTTProvider } from "./providers/sarvam/stt";
 import { SarvamTranslationProvider } from "./providers/sarvam/translate";
 import { SarvamTTSProvider } from "./providers/sarvam/tts";
 import { TranslationEngine } from "./engine";
+import { SarvamAuthError, SarvamRateLimitError, SarvamBalanceError } from "./providers/sarvam/errors";
+
+const MAX_RETRIES = 3;
+
+async function translateWithRetry(
+  engine: TranslationEngine,
+  audioBuffer: Buffer,
+  options: { sourceLanguage?: string; targetLanguage: string; voiceId?: string }
+): Promise<Buffer> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await engine.translateAudio(audioBuffer, options);
+    } catch (error) {
+      if (error instanceof SarvamRateLimitError && attempt < MAX_RETRIES - 1) {
+        const delay = 2000 * (attempt + 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new SarvamRateLimitError("Rate limit exceeded. Please wait a moment and try again.");
+}
 
 export async function main(options?: { port?: number; frontendPath?: string }) {
   const app = Fastify({ logger: true });
@@ -59,7 +82,7 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
 
       const engine = new TranslationEngine(sttProvider, translationProvider, ttsProvider);
 
-      const translatedAudio = await engine.translateAudio(audioBuffer, {
+      const translatedAudio = await translateWithRetry(engine, audioBuffer, {
         sourceLanguage,
         targetLanguage,
         voiceId,
@@ -72,6 +95,16 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       app.log.error(message);
+
+      if (error instanceof SarvamAuthError) {
+        return reply.status(401).send({ error: message });
+      }
+      if (error instanceof SarvamRateLimitError) {
+        return reply.status(429).send({ error: message });
+      }
+      if (error instanceof SarvamBalanceError) {
+        return reply.status(402).send({ error: message });
+      }
       reply.status(500).send({ error: message });
     }
   });
