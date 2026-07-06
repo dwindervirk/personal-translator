@@ -59,9 +59,25 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
     };
   }>("/api/translate", async (request, reply) => {
     try {
-      const data = await request.file();
-      if (!data) {
-        return reply.status(400).send({ error: "No audio file provided" });
+      let audioBuffer: Buffer;
+      let targetLanguage = request.query.targetLanguage ?? "en-IN";
+      const sourceLanguage = request.query.sourceLanguage;
+      const voiceId = request.query.voiceId;
+
+      const contentType = request.headers["content-type"] ?? "";
+
+      if (contentType.includes("application/json")) {
+        const body = request.body as { audio?: string };
+        if (!body?.audio) {
+          return reply.status(400).send({ error: "No audio data provided" });
+        }
+        audioBuffer = Buffer.from(body.audio, "base64");
+      } else {
+        const data = await request.file();
+        if (!data) {
+          return reply.status(400).send({ error: "No audio file provided" });
+        }
+        audioBuffer = await data.toBuffer();
       }
 
       const apiKey = request.headers["x-api-key"] ?? process.env.SARVAM_API_KEY;
@@ -71,15 +87,9 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
         });
       }
 
-      const audioBuffer = await data.toBuffer();
-      const targetLanguage = request.query.targetLanguage ?? "en-IN";
-      const sourceLanguage = request.query.sourceLanguage;
-      const voiceId = request.query.voiceId;
-
       const sttProvider = new SarvamSTTProvider(apiKey);
       const translationProvider = new SarvamTranslationProvider(apiKey);
       const ttsProvider = new SarvamTTSProvider(apiKey);
-
       const engine = new TranslationEngine(sttProvider, translationProvider, ttsProvider);
 
       const translatedAudio = await translateWithRetry(engine, audioBuffer, {
@@ -88,10 +98,14 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
         voiceId,
       });
 
-      reply
-        .header("Content-Type", "audio/wav")
-        .header("Content-Length", translatedAudio.length)
-        .send(translatedAudio);
+      if (contentType.includes("application/json")) {
+        reply.send({ audio: translatedAudio.toString("base64") });
+      } else {
+        reply
+          .header("Content-Type", "audio/wav")
+          .header("Content-Length", translatedAudio.length)
+          .send(translatedAudio);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       app.log.error(message);
