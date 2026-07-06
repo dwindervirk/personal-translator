@@ -1,17 +1,17 @@
 export async function captureMicrophone(): Promise<MediaRecorder> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      sampleRate: 16000,
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-    },
+    audio: true,
   });
 
-  const mediaRecorder = new MediaRecorder(stream, {
-    mimeType: "audio/webm;codecs=opus",
-  });
+  let mimeType = "audio/webm;codecs=opus";
+  if (!MediaRecorder.isTypeSupported(mimeType)) {
+    mimeType = "audio/webm";
+  }
+  if (!MediaRecorder.isTypeSupported(mimeType)) {
+    mimeType = "";
+  }
 
+  const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
   return mediaRecorder;
 }
 

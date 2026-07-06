@@ -40,6 +40,7 @@ export function MicButton() {
   const { status, sourceLanguage, targetLanguage, apiKey } = useAppSelector(
     (state) => state.translator
   );
+  const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const promiseRef = useRef<Promise<Blob> | null>(null);
 
@@ -50,11 +51,15 @@ export function MicButton() {
     }
     try {
       dispatch(setStatus("RECORDING"));
+      // Create AudioContext from user gesture for reliable playback on Android
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioContext();
+      }
       const recorder = await captureMicrophone();
       recorderRef.current = recorder;
       promiseRef.current = startRecording(recorder);
-    } catch {
-      dispatch(setError("Microphone access denied"));
+    } catch (err) {
+      dispatch(setError(err instanceof Error ? err.message : "Microphone access denied"));
     }
   }, [dispatch, apiKey]);
 
@@ -68,39 +73,78 @@ export function MicButton() {
 
       dispatch(setStatus("TRANSLATING"));
 
-      const formData = new FormData();
-      formData.append("file", wavBlob, "audio.wav");
-
-      const params = new URLSearchParams({ targetLanguage });
-      if (sourceLanguage && sourceLanguage !== "unknown") {
-        params.set("sourceLanguage", sourceLanguage);
-      }
-
-      const apiBase = (window as any).__API_PORT__
-        ? `http://127.0.0.1:${(window as any).__API_PORT__}`
-        : "";
-
-      const response = await fetch(`${apiBase}/api/translate?${params}`, {
-        method: "POST",
-        headers: apiKey ? { "X-API-Key": apiKey } : {},
-        body: formData,
+      // Read as base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          resolve(result.split(",")[1]); // strip data:audio/wav;base64, prefix
+        };
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(wavBlob);
       });
+      const base64Audio = await base64Promise;
 
-      if (!response.ok) {
-        const text = await response.text();
-        let message: string;
-        try {
-          const json = JSON.parse(text);
-          message = json.error ?? "Translation failed";
-        } catch {
-          message = text || `HTTP ${response.status}`;
+      let audioBinary: ArrayBuffer;
+
+      // Try Tauri IPC first (Android), fall back to HTTP (desktop)
+      if ((window as any).__TAURI_INTERNALS__) {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const result: string = await invoke("translate_audio", {
+          apiKey,
+          audioB64: base64Audio,
+          targetLanguage,
+        });
+        audioBinary = Uint8Array.from(atob(result), (c) => c.charCodeAt(0)).buffer;
+      } else {
+        const apiBase = (window as any).__API_PORT__
+          ? `http://127.0.0.1:${(window as any).__API_PORT__}`
+          : "";
+        const params = new URLSearchParams({ targetLanguage });
+        if (sourceLanguage && sourceLanguage !== "unknown") {
+          params.set("sourceLanguage", sourceLanguage);
         }
-        throw new Error(message);
+
+        const xhr = new XMLHttpRequest();
+        const xhrPromise = new Promise<ArrayBuffer>((resolve, reject) => {
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const json = JSON.parse(xhr.responseText);
+                const audio = Uint8Array.from(atob(json.audio), (c) => c.charCodeAt(0)).buffer;
+                resolve(audio);
+              } catch {
+                reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+              }
+            } else {
+              try {
+                const json = JSON.parse(xhr.responseText);
+                reject(new Error(json.error ?? "Translation failed"));
+              } catch {
+                reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+              }
+            }
+          };
+          xhr.onerror = () => reject(new Error("Network request failed"));
+          xhr.open("POST", `${apiBase}/api/translate?${params}`);
+          xhr.setRequestHeader("Content-Type", "application/json");
+          if (apiKey) xhr.setRequestHeader("X-API-Key", apiKey);
+          xhr.send(JSON.stringify({ audio: base64Audio }));
+        });
+        audioBinary = await xhrPromise;
       }
 
-      const audioBuffer = await response.arrayBuffer();
       dispatch(setStatus("PLAYBACK_ACTIVE"));
-      await playAudio(audioBuffer);
+      const ctx = audioCtxRef.current ?? new AudioContext();
+      if (ctx.state === "suspended") await ctx.resume();
+      const audioBuffer = await ctx.decodeAudioData(audioBinary);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      await new Promise<void>((resolve) => {
+        source.onended = () => resolve();
+        source.start(0);
+      });
       dispatch(reset());
     } catch (err) {
       dispatch(setError(err instanceof Error ? err.message : "Translation failed"));

@@ -1,6 +1,7 @@
-use tauri::Manager;
+use base64::Engine;
 
 mod keystore;
+mod translate;
 
 #[cfg(target_os = "android")]
 mod server;
@@ -8,7 +9,12 @@ mod server;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![save_api_key, get_api_key, clear_api_key])
+        .invoke_handler(tauri::generate_handler![
+            save_api_key,
+            get_api_key,
+            clear_api_key,
+            translate_audio
+        ])
         .setup(|app| {
             #[cfg(debug_assertions)]
             if let Err(e) = app.handle().plugin(
@@ -21,28 +27,23 @@ pub fn run() {
 
             #[cfg(target_os = "android")]
             {
-                let port = server::start_server();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.eval(&format!("window.__API_PORT__ = {};", port));
-                }
+                let port = server::start_server(Some(3001));
             }
 
             #[cfg(not(target_os = "android"))]
             if !cfg!(debug_assertions) {
                 let port = portpicker::pick_unused_port().expect("no free port found");
-
                 let exe_dir = std::env::current_exe()
                     .ok()
                     .and_then(|p| p.parent().map(|d| d.to_path_buf()))
                     .unwrap_or_default();
-
                 let sidecar_path = exe_dir.join("server.exe");
 
-                let mut child = Command::new(&sidecar_path)
+                let mut child = std::process::Command::new(&sidecar_path)
                     .env("PORT", port.to_string())
                     .env("HOST", "127.0.0.1")
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
                     .spawn()
                     .expect("failed to spawn server.exe");
 
@@ -89,4 +90,16 @@ fn get_api_key() -> Result<Option<String>, String> {
 #[tauri::command]
 fn clear_api_key() -> Result<(), String> {
     Ok(())
+}
+
+#[tauri::command]
+async fn translate_audio(api_key: String, audio_b64: String, target_language: String) -> Result<String, String> {
+    let audio_data = base64::engine::general_purpose::STANDARD
+        .decode(audio_b64.as_bytes())
+        .map_err(|e| format!("Invalid base64 audio: {}", e))?;
+
+    let engine = translate::TranslationEngine::new();
+    let audio_bytes = engine.translate_audio(&api_key, &audio_data, None, &target_language).await?;
+
+    Ok(base64::engine::general_purpose::STANDARD.encode(&audio_bytes))
 }

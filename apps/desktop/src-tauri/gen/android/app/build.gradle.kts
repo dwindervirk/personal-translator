@@ -37,7 +37,14 @@ android {
             }
         }
         getByName("release") {
-            isMinifyEnabled = true
+            signingConfig = signingConfigs.create("release") {
+                storeFile = file("C:\\Users\\preet\\Documents\\projects\\personal-translator\\translator-keystore.jks")
+                storePassword = "translator123"
+                keyAlias = "translator"
+                keyPassword = "translator123"
+            }
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+            isMinifyEnabled = false
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
@@ -50,6 +57,12 @@ android {
     }
     buildFeatures {
         buildConfig = true
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDirs("$projectDir/../../../../dist")
+        }
     }
 }
 
