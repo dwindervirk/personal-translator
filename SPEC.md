@@ -330,7 +330,96 @@ The Rust code in `lib.rs` uses `#[cfg(target_os = "android")]` to branch:
 - **Android:** Start embedded axum HTTP server, inject `window.__API_PORT__` into WebView
 - **Desktop (Windows):** Start Node.js sidecar (existing behavior, unchanged)
 
-This structural specification details the foundational architecture required to assemble an extensible, production-ready, localized multi-language speech utility.
+---
+
+## 9. API Error Handling & User Feedback
+
+The application handles Sarvam API errors at three layers: **provider** (parses status codes), **server** (returns structured HTTP responses), and **frontend** (displays user-friendly messages).
+
+### Error Types & Mapping
+
+| Sarvam HTTP Status | Cause | User-Facing Message | Frontend Display |
+|-------------------|-------|---------------------|------------------|
+| `401` / `403` | Invalid, expired, or revoked API key | "Your API key is invalid. Check the key in Settings." | Red error banner |
+| `429` | Rate limit exceeded (free/low-tier plans) | "Rate limit exceeded. Please wait a moment and try again." | Red error banner |
+| `402` or body contains "balance" / "credit" | Insufficient Sarvam account credits | "Your Sarvam account has insufficient credits." | Red error banner |
+| `500` / other | Sarvam internal error | `"Sarvam API error (status): {body}"` | Red error banner |
+
+### Provider Layer (TypeScript — `apps/server/src/providers/sarvam/`)
+
+Each provider (STT, Translate, TTS) checks `response.status` before throwing:
+
+```typescript
+// Pattern applied to all three providers
+const errBody = await response.text();
+if (status === 401 || status === 403) {
+  throw new SarvamAuthError("Your API key is invalid...");
+}
+if (status === 429) {
+  throw new SarvamRateLimitError("Rate limit exceeded...");
+}
+if (status === 402 || errBody.includes("balance") || errBody.includes("credit")) {
+  throw new SarvamBalanceError("Your Sarvam account has insufficient credits.");
+}
+throw new Error(`Sarvam API error (${status}): ${errBody}`);
+```
+
+Custom error classes (`SarvamAuthError`, `SarvamRateLimitError`, `SarvamBalanceError`) extend `Error` with distinct `name` properties for downstream discrimination.
+
+### Provider Layer (Rust — `apps/desktop/src-tauri/src/translate.rs`)
+
+Same logic via a helper function returning structured error strings with prefix markers:
+
+```rust
+fn map_sarvam_error(status: u16, body: &str) -> String {
+    match status {
+        401 | 403 => format!("AUTH_ERROR: Your API key is invalid..."),
+        429       => format!("RATE_LIMIT: Rate limit exceeded..."),
+        402       => format!("BALANCE_ERROR: Insufficient credits..."),
+        _         => format!("Sarvam API error ({status}): {body}"),
+    }
+}
+```
+
+### Server Layer (TypeScript — Fastify `apps/server/src/index.ts`)
+
+The catch block inspects the error `name` property to return the correct HTTP status code:
+
+```typescript
+catch (error) {
+  if (error instanceof SarvamAuthError)     return reply.status(401).send({ error: error.message });
+  if (error instanceof SarvamRateLimitError) return reply.status(429).send({ error: error.message });
+  if (error instanceof SarvamBalanceError)  return reply.status(402).send({ error: error.message });
+  // ... default 500
+}
+```
+
+#### Rate-Limit Retry (429)
+
+For `SarvamRateLimitError` only, the Fastify route wraps the `engine.translateAudio()` call with up to 3 retries using exponential backoff (2s → 4s → 8s). All other errors propagate immediately.
+
+### Server Layer (Rust — Tauri command `apps/desktop/src-tauri/src/lib.rs`)
+
+The `translate_audio` Tauri command includes a retry loop for `RATE_LIMIT:` prefixed errors:
+
+```rust
+const MAX_RETRIES: u32 = 3;
+for attempt in 0..MAX_RETRIES {
+    let result = engine.translate_audio(...).await;
+    match &result {
+        Ok(_) => return result,
+        Err(e) if e.starts_with("RATE_LIMIT:") && attempt < MAX_RETRIES - 1 => {
+            tokio::time::sleep(std::time::Duration::from_secs(2 * (attempt + 1))).await;
+            continue;
+        }
+        _ => return result,
+    }
+}
+```
+
+### Frontend Layer
+
+The error message from the server/Tauri IPC is dispatched directly via `dispatch(setError(message))` in `MicButton.tsx` and displayed in the `StatusBar` component. No additional parsing is needed — the human-readable messages from the provider layer are already user-ready.
 
 ```
 
