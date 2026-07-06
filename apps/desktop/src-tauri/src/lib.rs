@@ -97,7 +97,7 @@ fn get_api_key() -> Result<Option<String>, String> {
 
 #[tauri::command]
 fn clear_api_key() -> Result<(), String> {
-    Ok(())
+    keystore::clear()
 }
 
 #[tauri::command]
