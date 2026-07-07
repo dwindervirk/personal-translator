@@ -318,11 +318,21 @@ Both implementations call the same Sarvam AI REST endpoints. The Rust port is ap
 
 ### API Key Encryption (Android Keystore)
 
-On Android, the API key is stored using **Android Keystore** via a custom Tauri command:
-- Key is encrypted with AES-256-GCM using a per-installation master key
-- Storage via `EncryptedSharedPreferences` bridged through JNI
+On Android, the API key is stored using **Android Keystore** (hardware-backed) via a Rust-to-Kotlin JNI bridge:
+
+| Layer | File | Role |
+|-------|------|------|
+| **Kotlin** | `KeystoreHelper.kt` | Singleton with `save/load/clear` backed by `EncryptedSharedPreferences` (AES-256-GCM) |
+| **Rust JNI** | `keystore.rs` | `JNI_OnLoad` captures the `JavaVM` pointer, then `save/load/clear` use JNI to call `KeystoreHelper` static methods |
+| **Tauri command** | `lib.rs` | Exposes `save_api_key(key)`, `get_api_key()`, `clear_api_key()` to the frontend |
+| **Frontend** | `translatorSlice.ts` | Tries JNI-backed invoke first, falls back to `localStorage` if not in Tauri environment |
+
+Key details:
+- `JNI_OnLoad` stores the JVM in a `OnceLock<jni::JavaVM>` global
+- `with_jni_env()` helper attaches the calling thread to the JVM and provides a `JNIEnv`
+- JNI signatures: `save(Ljava/lang/String;)Z`, `load()Ljava/lang/String;`, `clear()Z`
+- Encryption uses AES-256-GCM with per-installation master key from `MasterKeys`
 - On desktop, `localStorage` continues to be used (unchanged behavior)
-- Tauri commands: `save_api_key(key)` / `get_api_key()`
 
 ### Platform Detection
 
