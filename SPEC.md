@@ -216,37 +216,38 @@ A gear icon (⚙) button in the main UI opens a Settings modal popup containing:
 
 | Control | Description |
 |---------|-------------|
-| API Key input | Masked password field (`type="password"`) with a show/hide toggle |
-| Provider selector | Dropdown for STT / Translation / TTS provider |
+| Provider dropdown | Selects which AI provider to use (Sarvam AI, Hugging Face, etc.) |
+| API Key input | Masked password field per selected provider, with a show/hide toggle |
 | Save button | Persists the key to `localStorage` (web) / Tauri app data (desktop) and updates Redux store |
-| Clear button | Removes the saved key |
+| Clear button | Removes the saved key for the selected provider |
 | Close | Dismisses the modal (X button or Escape key) |
 
 ### First-Run Experience
 
-On initial launch, if no API key is found in storage, the Settings modal auto-opens with a warning banner:
+On initial launch, if no API key is found for any provider, the Settings modal auto-opens with a generic warning banner:
 
-> "A Sarvam API key is required for translation to work. Enter your key below to get started."
+> "An API key is required for translation. Select a provider and enter your key below."
 
 ### Data Flow
 
 ```
-User enters key in Settings Modal
+User selects provider (e.g., "Sarvam AI") and enters key
            ↓
-Saved to localStorage / Redux Store
+Saved to per-provider localStorage key / Redux Store
+  apiKeys["sarvam"] = "sk_..."
+  apiKeys["huggingface"] = "hf_..."
            ↓
-MicButton reads key from Redux
+MicButton reads apiKeys[selectedProvider] from Redux
            ↓
-POST /api/translate
+POST /api/translate?provider=sarvam
   Headers: X-API-Key: sk_...
-  Body: multipart audio/wav
            ↓
-Fastify backend reads X-API-Key header
+Fastify backend reads provider query param + X-API-Key header
            ↓
-Creates provider instances dynamically with the key
-  new SarvamSTTProvider(key)
-  new SarvamTranslationProvider(key)
-  new SarvamTTSProvider(key)
+Factory creates provider instances based on name:
+  createSTTProvider("sarvam", key)       → SarvamSTTProvider
+  createTranslationProvider("sarvam", key) → SarvamTranslationProvider
+  createTTSProvider("sarvam", key)       → SarvamTTSProvider
            ↓
 Pipeline executes: STT → Translate → TTS
 ```
@@ -355,26 +356,47 @@ The application handles Sarvam API errors at three layers: **provider** (parses 
 | `402` or body contains "balance" / "credit" | Insufficient Sarvam account credits | "Your Sarvam account has insufficient credits." | Red error banner |
 | `500` / other | Sarvam internal error | `"Sarvam API error (status): {body}"` | Red error banner |
 
-### Provider Layer (TypeScript — `apps/server/src/providers/sarvam/`)
+### Provider Layer (TypeScript — `apps/server/src/providers/`)
+
+Error handling uses generalized classes from `providers/errors.ts` that are provider-agnostic:
+
+```typescript
+// apps/server/src/providers/errors.ts
+export class ProviderAuthError extends Error { name = "ProviderAuthError"; }
+export class ProviderRateLimitError extends Error { name = "ProviderRateLimitError"; }
+export class ProviderBalanceError extends Error { name = "ProviderBalanceError"; }
+```
+
+Sarvam-specific errors re-export the same classes:
+
+```typescript
+// apps/server/src/providers/sarvam/errors.ts
+export { ProviderAuthError as SarvamAuthError, ... } from "../errors";
+```
 
 Each provider (STT, Translate, TTS) checks `response.status` before throwing:
 
 ```typescript
-// Pattern applied to all three providers
 const errBody = await response.text();
 if (status === 401 || status === 403) {
-  throw new SarvamAuthError("Your API key is invalid...");
+  throw new ProviderAuthError("Your API key is invalid...");
 }
 if (status === 429) {
-  throw new SarvamRateLimitError("Rate limit exceeded...");
+  throw new ProviderRateLimitError("Rate limit exceeded...");
 }
 if (status === 402 || errBody.includes("balance") || errBody.includes("credit")) {
-  throw new SarvamBalanceError("Your Sarvam account has insufficient credits.");
+  throw new ProviderBalanceError("Your Sarvam account has insufficient credits.");
 }
 throw new Error(`Sarvam API error (${status}): ${errBody}`);
 ```
 
-Custom error classes (`SarvamAuthError`, `SarvamRateLimitError`, `SarvamBalanceError`) extend `Error` with distinct `name` properties for downstream discrimination.
+The server route handler checks the generalized classes:
+
+```typescript
+if (error instanceof ProviderAuthError)     return reply.status(401);
+if (error instanceof ProviderRateLimitError) return reply.status(429);
+if (error instanceof ProviderBalanceError)  return reply.status(402);
+```
 
 ### Provider Layer (Rust — `apps/desktop/src-tauri/src/translate.rs`)
 

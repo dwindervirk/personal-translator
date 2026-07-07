@@ -8,13 +8,13 @@ export class TranslationEngine {
   ) {}
 
   async translateAudio(
-    audioData: Buffer,
+    audioData: Uint8Array,
     options: {
       sourceLanguage?: string;
       targetLanguage: string;
       voiceId?: string;
     }
-  ): Promise<Buffer> {
+  ): Promise<Uint8Array> {
     const { text, detectedLanguage } = await this.stt.transcribe(audioData, {
       languageCode: options.sourceLanguage,
     });

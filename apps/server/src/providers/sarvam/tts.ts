@@ -12,7 +12,7 @@ export class SarvamTTSProvider implements ITTSProvider {
     text: string,
     languageCode: string,
     options?: { voiceId?: string }
-  ): Promise<Buffer> {
+  ): Promise<Uint8Array> {
     const response = await fetch("https://api.sarvam.ai/text-to-speech", {
       method: "POST",
       headers: {
