@@ -277,6 +277,21 @@ Accepts a WAV audio file and returns translated audio.
 
 ---
 
+## API Error Handling
+
+The application handles Sarvam API errors with user-friendly messages and automatic retry logic.
+
+| Error | HTTP Status | User-Facing Message |
+|-------|:-----------:|---------------------|
+| Invalid/expired API key | `401` / `403` | "Your API key is invalid. Check the key in Settings." |
+| Rate limit exceeded | `429` | "Rate limit exceeded. Please wait a moment and try again." (retried 3× with exponential backoff) |
+| Insufficient balance | `402` | "Your Sarvam account has insufficient credits." |
+| Other failures | `500` | Descriptive message from the API |
+
+Errors are displayed as a red dismissable banner in the app UI.
+
+---
+
 ## Building for Windows Standalone
 
 Package the desktop app as a standalone `.msi` installer with **Tauri**.
