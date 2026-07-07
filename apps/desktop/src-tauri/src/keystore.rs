@@ -52,7 +52,7 @@ mod android_keystore {
     }
 
     pub fn save(api_key: &str) -> Result<(), String> {
-        log::info!("keystore::save called, key length: {}", api_key.len());
+        log::info!("keystore::save called");
         with_jni_env(|env| {
             let class = env
                 .find_class("com/personaltranslator/app/KeystoreHelper")
@@ -81,15 +81,13 @@ mod android_keystore {
 
     pub fn load() -> Result<Option<String>, String> {
         log::info!("keystore::load called");
-        let result = with_jni_env(|env| {
-            log::info!("keystore::load: JNI env acquired");
+        with_jni_env(|env| {
             let class = env
                 .find_class("com/personaltranslator/app/KeystoreHelper")
                 .map_err(|e| {
                     log::error!("keystore::load: find_class failed: {}", e);
                     format!("KeystoreHelper class not found: {}", e)
                 })?;
-            log::info!("keystore::load: class found");
 
             let result = env
                 .call_static_method(&class, "load", "()Ljava/lang/String;", &[])
@@ -97,34 +95,24 @@ mod android_keystore {
                     log::error!("keystore::load: call_static_method failed: {}", e);
                     format!("KeystoreHelper.load() failed: {}", e)
                 })?;
-            log::info!("keystore::load: method called");
 
-            let j_obj = result
-                .l()
-                .map_err(|e| {
-                    log::error!("keystore::load: extract object failed: {}", e);
-                    format!("Failed to extract object: {}", e)
-                })?;
-            log::info!("keystore::load: object extracted, is_null: {}", j_obj.is_null());
+            let j_obj = result.l().map_err(|e| {
+                log::error!("keystore::load: extract object failed: {}", e);
+                format!("Failed to extract object: {}", e)
+            })?;
 
             if j_obj.is_null() {
-                log::info!("keystore::load: no key found (null)");
+                log::info!("keystore::load: no key found");
                 return Ok(None);
             }
 
             let jstr = jni::objects::JString::from(j_obj);
-            let java_str = env
-                .get_string(&jstr)
-                .map_err(|e| {
-                    log::error!("keystore::load: get_string failed: {}", e);
-                    format!("Failed to read string: {}", e)
-                })?;
-            let key: String = java_str.into();
-            log::info!("keystore::load: key retrieved, length: {}", key.len());
-            Ok(Some(key))
-        });
-        log::info!("keystore::load: returning {:?}", result);
-        result
+            let java_str = env.get_string(&jstr).map_err(|e| {
+                log::error!("keystore::load: get_string failed: {}", e);
+                format!("Failed to read string: {}", e)
+            })?;
+            Ok(Some(java_str.into()))
+        })
     }
 
     pub fn clear() -> Result<(), String> {

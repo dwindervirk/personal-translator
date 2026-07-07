@@ -55,6 +55,58 @@ test.describe("Personal Translator - Settings Modal", () => {
     await page.waitForTimeout(200);
     await expect(page.getByText("Sarvam API Key", { exact: true })).not.toBeVisible();
   });
+
+  test("saved API key persists when reopening settings modal", async ({ page }) => {
+    await page.goto(BASE_URL);
+    // Save a key
+    await page.fill('input[type="password"]', "sk_persist_key");
+    await page.getByRole("button", { name: /save/i }).click();
+    await page.waitForTimeout(200);
+    await expect(page.getByText("Sarvam API Key", { exact: true })).not.toBeVisible();
+
+    // Reopen settings via gear icon
+    await page.getByRole("button", { name: /settings/i }).click();
+    await page.waitForTimeout(300);
+    // Input should be populated with the saved key
+    await expect(page.locator('input[type="password"]')).toHaveValue("sk_persist_key");
+    // Warning banner (shown only when no key) should NOT be visible
+    await expect(page.getByText(/A Sarvam API key is required/i)).not.toBeVisible();
+    // Clear button should be visible (only when a key is saved)
+    await expect(page.getByRole("button", { name: /clear/i })).toBeVisible();
+  });
+
+  test("API key can be cleared", async ({ page }) => {
+    // First save a key
+    await page.goto(BASE_URL);
+    await page.fill('input[type="password"]', "sk_to_clear");
+    await page.getByRole("button", { name: /save/i }).click();
+    await page.waitForTimeout(200);
+
+    // Reopen and clear
+    await page.getByRole("button", { name: /settings/i }).click();
+    await page.waitForTimeout(300);
+    await page.getByRole("button", { name: /clear/i }).click();
+    await page.waitForTimeout(200);
+    // Input should be empty after clear
+    await expect(page.locator('input[type="password"]')).toHaveValue("");
+    // Warning banner should reappear
+    await expect(page.getByText(/A Sarvam API key is required/i)).toBeVisible({ timeout: 3000 });
+  });
+
+  test("empty key does not save", async ({ page }) => {
+    await page.goto(BASE_URL);
+    // Save button should be disabled when input is empty
+    const saveBtn = page.getByRole("button", { name: /save/i });
+    await expect(saveBtn).toBeDisabled();
+
+    // Type whitespace only
+    await page.fill('input[type="password"]', "   ");
+    await expect(saveBtn).toBeDisabled();
+
+    // Type a real key, verify button enables
+    await page.fill('input[type="password"]', "sk_real_key");
+    await expect(saveBtn).toBeEnabled();
+  });
 });
 
 test.describe("Personal Translator - Error Handling", () => {
