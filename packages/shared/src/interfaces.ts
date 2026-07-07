@@ -1,6 +1,6 @@
 export interface ISTTProvider {
   transcribe(
-    audioData: Buffer,
+    audioData: Uint8Array,
     options?: { languageCode?: string; mode?: string }
   ): Promise<{ text: string; detectedLanguage?: string }>;
 }
@@ -18,12 +18,14 @@ export interface ITTSProvider {
     text: string,
     languageCode: string,
     options?: { voiceId?: string }
-  ): Promise<Buffer>;
+  ): Promise<Uint8Array>;
 }
 
-export type STTProviderName = "sarvam";
-export type TranslationProviderName = "sarvam";
-export type TTSProviderName = "sarvam";
+export type ProviderName = "sarvam" | "huggingface";
+
+export type STTProviderName = ProviderName;
+export type TranslationProviderName = ProviderName;
+export type TTSProviderName = ProviderName;
 
 export interface ProviderConfig {
   stt: STTProviderName;

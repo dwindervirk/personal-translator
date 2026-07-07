@@ -9,7 +9,7 @@ export class SarvamSTTProvider implements ISTTProvider {
   }
 
   async transcribe(
-    audioData: Buffer,
+    audioData: Uint8Array,
     options?: { languageCode?: string; mode?: string }
   ): Promise<{ text: string; detectedLanguage?: string }> {
     const formData = new FormData();

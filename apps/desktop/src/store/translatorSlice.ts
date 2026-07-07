@@ -1,80 +1,118 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
+import type { ProviderName, ProviderConfig } from "@repo/shared";
 
 export type AppStatus = "IDLE" | "RECORDING" | "TRANSLATING" | "PLAYBACK_ACTIVE" | "ERROR";
+
+const STORAGE_KEYS_PREFIX = "translator_api_key_";
+const STORAGE_PROVIDER = "translator_selected_provider";
+
+function storageKey(provider: string): string {
+  return STORAGE_KEYS_PREFIX + provider;
+}
+
+function getStoredApiKey(provider: string): string | null {
+  try {
+    return localStorage.getItem(storageKey(provider));
+  } catch {
+    return null;
+  }
+}
+
+function setStoredApiKey(provider: string, key: string) {
+  try {
+    localStorage.setItem(storageKey(provider), key);
+  } catch { /* ignore */ }
+}
+
+function removeStoredApiKey(provider: string) {
+  try {
+    localStorage.removeItem(storageKey(provider));
+  } catch { /* ignore */ }
+}
+
+function getStoredProvider(): string {
+  try {
+    return localStorage.getItem(STORAGE_PROVIDER) ?? "sarvam";
+  } catch {
+    return "sarvam";
+  }
+}
+
+function setStoredProvider(provider: string) {
+  try {
+    localStorage.setItem(STORAGE_PROVIDER, provider);
+  } catch { /* ignore */ }
+}
 
 export interface TranslatorState {
   status: AppStatus;
   sourceLanguage: string;
   targetLanguage: string;
-  apiKey: string | null;
+  apiKeys: Record<string, string>;
+  selectedProvider: string;
   showSettings: boolean;
   error: string | null;
   loading: boolean;
 }
 
-async function isTauri(): Promise<boolean> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("get_api_key");
-    return true;
-  } catch {
-    return false;
-  }
-}
+export const loadApiKey = createAsyncThunk(
+  "translator/loadApiKey",
+  async (provider: string) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const key: string | null = await invoke("get_api_key");
+      if (key) return { provider, key };
+    } catch { /* fall through */ }
 
-export const loadApiKey = createAsyncThunk("translator/loadApiKey", async () => {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const key: string | null = await invoke("get_api_key");
-    if (key) return key;
-  } catch {
-    // Not in Tauri environment, fall through to localStorage
+    return { provider, key: getStoredApiKey(provider) };
   }
+);
 
-  try {
-    return localStorage.getItem("translator_api_key");
-  } catch {
-    return null;
+export const saveApiKey = createAsyncThunk(
+  "translator/saveApiKey",
+  async ({ provider, key }: { provider: string; key: string }) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("save_api_key", { key });
+    } catch { /* fall through */ }
+
+    setStoredApiKey(provider, key);
+    return { provider, key };
   }
-});
+);
 
-export const saveApiKey = createAsyncThunk("translator/saveApiKey", async (key: string) => {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("save_api_key", { key });
-  } catch {
-    // Not in Tauri environment, fall through to localStorage
+export const clearApiKeyAction = createAsyncThunk(
+  "translator/clearApiKey",
+  async (provider: string) => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("clear_api_key");
+    } catch { /* fall through */ }
+
+    removeStoredApiKey(provider);
+    return provider;
   }
+);
 
-  try {
-    localStorage.setItem("translator_api_key", key);
-  } catch {
-    // localStorage unavailable
+export const loadAllApiKeys = createAsyncThunk(
+  "translator/loadAllApiKeys",
+  async () => {
+    const providers: string[] = ["sarvam", "huggingface"];
+    const apiKeys: Record<string, string> = {};
+    for (const p of providers) {
+      const key = getStoredApiKey(p);
+      if (key) apiKeys[p] = key;
+    }
+    return apiKeys;
   }
-
-  return key;
-});
-
-export const clearApiKeyAction = createAsyncThunk("translator/clearApiKey", async () => {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("clear_api_key");
-  } catch {
-    // Not in Tauri environment, fall through to localStorage
-  }
-
-  try {
-    localStorage.removeItem("translator_api_key");
-  } catch {
-    // localStorage unavailable
-  }
-});
+);
 
 const initialState: TranslatorState = {
   status: "IDLE",
   sourceLanguage: "unknown",
   targetLanguage: "en-IN",
-  apiKey: null,
+  apiKeys: {},
+  selectedProvider: getStoredProvider(),
   showSettings: true,
   error: null,
   loading: true,
@@ -101,6 +139,13 @@ export const translatorSlice = createSlice({
     setShowSettings(state, action: PayloadAction<boolean>) {
       state.showSettings = action.payload;
     },
+    setSelectedProvider(state, action: PayloadAction<string>) {
+      state.selectedProvider = action.payload;
+      setStoredProvider(action.payload);
+    },
+    setProviderApiKey(state, action: PayloadAction<{ provider: string; key: string }>) {
+      state.apiKeys[action.payload.provider] = action.payload.key;
+    },
     reset(state) {
       state.status = "IDLE";
       state.error = null;
@@ -109,21 +154,31 @@ export const translatorSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(loadApiKey.fulfilled, (state, action) => {
-        state.apiKey = action.payload ?? null;
-        state.showSettings = !action.payload;
+        const { provider, key } = action.payload;
+        if (key) {
+          state.apiKeys[provider] = key;
+        }
+        state.showSettings = !Object.values(state.apiKeys).some(Boolean);
         state.loading = false;
       })
       .addCase(loadApiKey.rejected, (state) => {
         state.loading = false;
       })
+      .addCase(loadAllApiKeys.fulfilled, (state, action) => {
+        state.apiKeys = { ...state.apiKeys, ...action.payload };
+        state.loading = false;
+      })
       .addCase(saveApiKey.fulfilled, (state, action) => {
-        state.apiKey = action.payload;
+        const { provider, key } = action.payload;
+        state.apiKeys[provider] = key;
+        state.selectedProvider = provider;
         state.showSettings = false;
         state.error = null;
       })
-      .addCase(clearApiKeyAction.fulfilled, (state) => {
-        state.apiKey = null;
-        state.showSettings = true;
+      .addCase(clearApiKeyAction.fulfilled, (state, action) => {
+        const provider = action.payload;
+        delete state.apiKeys[provider];
+        state.showSettings = !Object.values(state.apiKeys).some(Boolean);
       });
   },
 });
@@ -134,5 +189,7 @@ export const {
   setSourceLanguage,
   setTargetLanguage,
   setShowSettings,
+  setSelectedProvider,
+  setProviderApiKey,
   reset,
 } = translatorSlice.actions;

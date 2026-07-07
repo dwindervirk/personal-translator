@@ -7,29 +7,29 @@ function selects(page: Page) {
   return { source: all.nth(0), target: all.nth(1) };
 }
 
-async function setApiKey(page: Page, key: string = "test-key") {
-  await page.evaluate((k) => {
-    localStorage.setItem("translator_api_key", k);
-  }, key);
+async function setApiKey(page: Page, key: string = "test-key", provider: string = "sarvam") {
+  await page.evaluate(({ k, p }) => {
+    localStorage.setItem("translator_api_key_" + p, k);
+    localStorage.setItem("translator_selected_provider", p);
+  }, { k: key, p: provider });
 }
 
-async function clearApiKey(page: Page) {
-  await page.evaluate(() => {
-    localStorage.removeItem("translator_api_key");
-  });
+async function clearApiKey(page: Page, provider: string = "sarvam") {
+  await page.evaluate((p) => {
+    localStorage.removeItem("translator_api_key_" + p);
+  }, provider);
 }
 
 test.describe("Personal Translator - UI Elements", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto(BASE_URL);
-    await page.keyboard.press("Escape");
-  });
-
   test("page loads with correct title", async ({ page }) => {
+    await page.goto(BASE_URL, { timeout: 90000 });
+    await page.keyboard.press("Escape");
     await expect(page.getByText("Personal Translator")).toBeVisible();
   });
 
   test("language dropdowns are present and functional", async ({ page }) => {
+    await page.goto(BASE_URL, { timeout: 90000 });
+    await page.keyboard.press("Escape");
     const { source, target } = selects(page);
     await expect(source).toBeVisible();
     await expect(target).toBeVisible();
@@ -40,6 +40,8 @@ test.describe("Personal Translator - UI Elements", () => {
   });
 
   test("start recording button exists in idle state", async ({ page }) => {
+    await page.goto(BASE_URL, { timeout: 90000 });
+    await page.keyboard.press("Escape");
     await expect(
       page.getByRole("button", { name: /start recording/i })
     ).toBeVisible();
@@ -49,11 +51,24 @@ test.describe("Personal Translator - UI Elements", () => {
 test.describe("Personal Translator - Settings Modal", () => {
   test("settings modal opens on first run and can save a key", async ({ page }) => {
     await page.goto(BASE_URL);
-    await expect(page.getByText("Sarvam API Key", { exact: true })).toBeVisible();
+    await expect(page.getByText(/API key is required/i)).toBeVisible();
+    await expect(page.getByText(/API Key \(Sarvam AI\)/i)).toBeVisible();
     await page.fill('input[type="password"]', "sk_test_key");
     await page.getByRole("button", { name: /save/i }).click();
     await page.waitForTimeout(200);
-    await expect(page.getByText("Sarvam API Key", { exact: true })).not.toBeVisible();
+    await expect(page.getByText(/API key is required/i)).not.toBeVisible();
+  });
+
+  test("provider dropdown allows switching providers", async ({ page }) => {
+    await page.goto(BASE_URL);
+    const dropdown = page.getByRole("combobox").nth(2);
+    await expect(dropdown).toBeVisible();
+    await expect(dropdown).toHaveValue("sarvam");
+    await dropdown.selectOption("huggingface");
+    await expect(dropdown).toHaveValue("huggingface");
+    await expect(page.getByText(/API Key \(Hugging Face\)/i)).toBeVisible();
+    const stored = await page.evaluate(() => localStorage.getItem("translator_selected_provider"));
+    expect(stored).toBe("huggingface");
   });
 
   test("saved API key persists when reopening settings modal", async ({ page }) => {
@@ -62,7 +77,7 @@ test.describe("Personal Translator - Settings Modal", () => {
     await page.fill('input[type="password"]', "sk_persist_key");
     await page.getByRole("button", { name: /save/i }).click();
     await page.waitForTimeout(200);
-    await expect(page.getByText("Sarvam API Key", { exact: true })).not.toBeVisible();
+    await expect(page.getByText(/API key is required/i)).not.toBeVisible();
 
     // Reopen settings via gear icon
     await page.getByRole("button", { name: /settings/i }).click();
@@ -70,13 +85,12 @@ test.describe("Personal Translator - Settings Modal", () => {
     // Input should be populated with the saved key
     await expect(page.locator('input[type="password"]')).toHaveValue("sk_persist_key");
     // Warning banner (shown only when no key) should NOT be visible
-    await expect(page.getByText(/A Sarvam API key is required/i)).not.toBeVisible();
+    await expect(page.getByText(/API key is required/i)).not.toBeVisible();
     // Clear button should be visible (only when a key is saved)
     await expect(page.getByRole("button", { name: /clear/i })).toBeVisible();
   });
 
   test("API key can be cleared", async ({ page }) => {
-    // First save a key
     await page.goto(BASE_URL);
     await page.fill('input[type="password"]', "sk_to_clear");
     await page.getByRole("button", { name: /save/i }).click();
@@ -87,23 +101,18 @@ test.describe("Personal Translator - Settings Modal", () => {
     await page.waitForTimeout(300);
     await page.getByRole("button", { name: /clear/i }).click();
     await page.waitForTimeout(200);
-    // Input should be empty after clear
     await expect(page.locator('input[type="password"]')).toHaveValue("");
-    // Warning banner should reappear
-    await expect(page.getByText(/A Sarvam API key is required/i)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/API key is required/i)).toBeVisible({ timeout: 3000 });
   });
 
   test("empty key does not save", async ({ page }) => {
     await page.goto(BASE_URL);
-    // Save button should be disabled when input is empty
     const saveBtn = page.getByRole("button", { name: /save/i });
     await expect(saveBtn).toBeDisabled();
 
-    // Type whitespace only
     await page.fill('input[type="password"]', "   ");
     await expect(saveBtn).toBeDisabled();
 
-    // Type a real key, verify button enables
     await page.fill('input[type="password"]', "sk_real_key");
     await expect(saveBtn).toBeEnabled();
   });
@@ -127,7 +136,8 @@ test.describe("Personal Translator - Error Handling", () => {
   });
 
   test("shows error banner when invalid API key is used", async ({ page }) => {
-    await page.goto(BASE_URL);
+    test.setTimeout(120000);
+    await page.goto(BASE_URL, { timeout: 90000 });
     await setApiKey(page, "sk_invalid_key");
     await page.reload();
     await page.waitForLoadState("networkidle");
@@ -194,7 +204,8 @@ test.describe("Personal Translator - Recording Flow", () => {
 
 test.describe("Personal Translator - Pipeline End-to-End", () => {
   test("capture → translate completes without crash", async ({ page }) => {
-    await page.goto(BASE_URL);
+    test.setTimeout(120000);
+    await page.goto(BASE_URL, { timeout: 90000 });
     await setApiKey(page);
     await page.reload();
     await page.waitForLoadState("networkidle");

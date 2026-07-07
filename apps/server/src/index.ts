@@ -6,24 +6,22 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { SarvamSTTProvider } from "./providers/sarvam/stt";
-import { SarvamTranslationProvider } from "./providers/sarvam/translate";
-import { SarvamTTSProvider } from "./providers/sarvam/tts";
+import { createSTTProvider, createTranslationProvider, createTTSProvider } from "./providers/factory";
 import { TranslationEngine } from "./engine";
-import { SarvamAuthError, SarvamRateLimitError, SarvamBalanceError } from "./providers/sarvam/errors";
+import { ProviderAuthError, ProviderRateLimitError, ProviderBalanceError } from "./providers/errors";
 
 const MAX_RETRIES = 3;
 
 async function translateWithRetry(
   engine: TranslationEngine,
-  audioBuffer: Buffer,
+  audioBuffer: Uint8Array,
   options: { sourceLanguage?: string; targetLanguage: string; voiceId?: string }
-): Promise<Buffer> {
+): Promise<Uint8Array> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       return await engine.translateAudio(audioBuffer, options);
     } catch (error) {
-      if (error instanceof SarvamRateLimitError && attempt < MAX_RETRIES - 1) {
+      if (error instanceof ProviderRateLimitError && attempt < MAX_RETRIES - 1) {
         const delay = 2000 * (attempt + 1);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
@@ -31,7 +29,7 @@ async function translateWithRetry(
       throw error;
     }
   }
-  throw new SarvamRateLimitError("Rate limit exceeded. Please wait a moment and try again.");
+  throw new ProviderRateLimitError("Rate limit exceeded. Please wait a moment and try again.");
 }
 
 export async function main(options?: { port?: number; frontendPath?: string }) {
@@ -53,16 +51,18 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
       targetLanguage?: string;
       sourceLanguage?: string;
       voiceId?: string;
+      provider?: string;
     };
     Headers: {
       "x-api-key"?: string;
     };
   }>("/api/translate", async (request, reply) => {
     try {
-      let audioBuffer: Buffer;
+      let audioBuffer: Uint8Array;
       let targetLanguage = request.query.targetLanguage ?? "en-IN";
       const sourceLanguage = request.query.sourceLanguage;
       const voiceId = request.query.voiceId;
+      const provider = request.query.provider ?? "sarvam";
 
       const contentType = request.headers["content-type"] ?? "";
 
@@ -71,13 +71,13 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
         if (!body?.audio) {
           return reply.status(400).send({ error: "No audio data provided" });
         }
-        audioBuffer = Buffer.from(body.audio, "base64");
+        audioBuffer = new Uint8Array(Buffer.from(body.audio, "base64"));
       } else {
         const data = await request.file();
         if (!data) {
           return reply.status(400).send({ error: "No audio file provided" });
         }
-        audioBuffer = await data.toBuffer();
+        audioBuffer = new Uint8Array(await data.toBuffer());
       }
 
       const apiKey = request.headers["x-api-key"] ?? process.env.SARVAM_API_KEY;
@@ -87,9 +87,9 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
         });
       }
 
-      const sttProvider = new SarvamSTTProvider(apiKey);
-      const translationProvider = new SarvamTranslationProvider(apiKey);
-      const ttsProvider = new SarvamTTSProvider(apiKey);
+      const sttProvider = createSTTProvider(provider, apiKey);
+      const translationProvider = createTranslationProvider(provider, apiKey);
+      const ttsProvider = createTTSProvider(provider, apiKey);
       const engine = new TranslationEngine(sttProvider, translationProvider, ttsProvider);
 
       const translatedAudio = await translateWithRetry(engine, audioBuffer, {
@@ -99,7 +99,8 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
       });
 
       if (contentType.includes("application/json")) {
-        reply.send({ audio: translatedAudio.toString("base64") });
+        const b64 = Buffer.from(translatedAudio).toString("base64");
+        reply.send({ audio: b64 });
       } else {
         reply
           .header("Content-Type", "audio/wav")
@@ -110,13 +111,13 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
       const message = error instanceof Error ? error.message : "Unknown error";
       app.log.error(message);
 
-      if (error instanceof SarvamAuthError) {
+      if (error instanceof ProviderAuthError) {
         return reply.status(401).send({ error: message });
       }
-      if (error instanceof SarvamRateLimitError) {
+      if (error instanceof ProviderRateLimitError) {
         return reply.status(429).send({ error: message });
       }
-      if (error instanceof SarvamBalanceError) {
+      if (error instanceof ProviderBalanceError) {
         return reply.status(402).send({ error: message });
       }
       reply.status(500).send({ error: message });

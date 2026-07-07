@@ -37,9 +37,10 @@ function Spinner() {
 
 export function MicButton() {
   const dispatch = useAppDispatch();
-  const { status, sourceLanguage, targetLanguage, apiKey } = useAppSelector(
+  const { status, sourceLanguage, targetLanguage, apiKeys, selectedProvider } = useAppSelector(
     (state) => state.translator
   );
+  const apiKey = apiKeys[selectedProvider] ?? null;
   const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const promiseRef = useRef<Promise<Blob> | null>(null);
@@ -94,13 +95,14 @@ export function MicButton() {
           apiKey,
           audioB64: base64Audio,
           targetLanguage,
+          provider: selectedProvider,
         });
         audioBinary = Uint8Array.from(atob(result), (c) => c.charCodeAt(0)).buffer;
       } else {
         const apiBase = (window as any).__API_PORT__
           ? `http://127.0.0.1:${(window as any).__API_PORT__}`
           : "";
-        const params = new URLSearchParams({ targetLanguage });
+        const params = new URLSearchParams({ targetLanguage, provider: selectedProvider });
         if (sourceLanguage && sourceLanguage !== "unknown") {
           params.set("sourceLanguage", sourceLanguage);
         }

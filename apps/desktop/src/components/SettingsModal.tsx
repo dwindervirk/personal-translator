@@ -2,33 +2,44 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { saveApiKey, clearApiKeyAction, setShowSettings } from "@/store/translatorSlice";
+import { saveApiKey, clearApiKeyAction, setShowSettings, setSelectedProvider } from "@/store/translatorSlice";
+import type { ProviderName } from "@repo/shared";
+
+const PROVIDERS: { id: ProviderName; label: string; placeholder: string }[] = [
+  { id: "sarvam", label: "Sarvam AI", placeholder: "sk_...your_key" },
+  { id: "huggingface", label: "Hugging Face", placeholder: "hf_...your_token" },
+];
 
 export function SettingsModal() {
   const dispatch = useAppDispatch();
-  const { apiKey, showSettings } = useAppSelector((state) => state.translator);
-  const [inputValue, setInputValue] = useState(apiKey ?? "");
+  const { apiKeys, selectedProvider, showSettings } = useAppSelector((state) => state.translator);
+  const currentKey = apiKeys[selectedProvider] ?? null;
+  const [inputValue, setInputValue] = useState(currentKey ?? "");
   const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
-    setInputValue(apiKey ?? "");
-  }, [apiKey]);
+    setInputValue(currentKey ?? "");
+  }, [currentKey]);
+
+  const selected = PROVIDERS.find((p) => p.id === selectedProvider) ?? PROVIDERS[0];
 
   const handleSave = useCallback(() => {
     const trimmed = inputValue.trim();
     if (trimmed) {
-      dispatch(saveApiKey(trimmed));
+      dispatch(saveApiKey({ provider: selectedProvider, key: trimmed }));
     }
-  }, [inputValue, dispatch]);
+  }, [inputValue, selectedProvider, dispatch]);
 
   const handleClear = useCallback(() => {
     setInputValue("");
-    dispatch(clearApiKeyAction());
-  }, [dispatch]);
+    dispatch(clearApiKeyAction(selectedProvider));
+  }, [selectedProvider, dispatch]);
 
   const handleClose = useCallback(() => {
     dispatch(setShowSettings(false));
   }, [dispatch]);
+
+  const hasAnyKey = Object.values(apiKeys).some(Boolean);
 
   if (!showSettings) return null;
 
@@ -53,19 +64,34 @@ export function SettingsModal() {
           </button>
         </div>
 
-        {!apiKey && (
+        {!hasAnyKey && (
           <div className="mb-4 rounded-lg border border-yellow-600/40 bg-yellow-900/20 px-3 py-2 text-sm text-yellow-300">
-            A Sarvam API key is required for translation to work. Enter your key below to get started.
+            An API key is required for translation. Select a provider and enter your key below.
           </div>
         )}
 
-        <label className="mb-1 block text-sm text-gray-400">Sarvam API Key</label>
+        <label className="mb-1 block text-sm text-gray-400">Provider</label>
+        <select
+          value={selectedProvider}
+          onChange={(e) => {
+            dispatch(setSelectedProvider(e.target.value));
+          }}
+          className="mb-4 w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-emerald-500 focus:outline-none"
+        >
+          {PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+
+        <label className="mb-1 block text-sm text-gray-400">API Key ({selected.label})</label>
         <div className="relative mb-4">
           <input
             type={showKey ? "text" : "password"}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            placeholder="sk_...your_key"
+            placeholder={selected.placeholder}
             className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 pr-10 text-sm text-gray-100 placeholder-gray-500 focus:border-emerald-500 focus:outline-none"
           />
           <button
@@ -93,7 +119,7 @@ export function SettingsModal() {
           >
             Save
           </button>
-          {apiKey && (
+          {currentKey && (
             <button
               onClick={handleClear}
               className="rounded-lg border border-red-700 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-900/30"
