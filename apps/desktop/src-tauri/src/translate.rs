@@ -2,6 +2,22 @@ use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
 
+fn map_sarvam_error(status: u16, body: &str) -> String {
+    match status {
+        401 | 403 => format!("AUTH_ERROR: Your API key is invalid. Check the key in Settings."),
+        429 => format!("RATE_LIMIT: Rate limit exceeded. Please wait and try again."),
+        402 => format!("BALANCE_ERROR: Your Sarvam account has insufficient credits."),
+        _ => {
+            let lower = body.to_lowercase();
+            if lower.contains("balance") || lower.contains("credit") {
+                format!("BALANCE_ERROR: Your Sarvam account has insufficient credits.")
+            } else {
+                format!("Sarvam API error ({}): {}", status, body)
+            }
+        }
+    }
+}
+
 struct SarvamSTT {
     client: Client,
 }
@@ -27,8 +43,10 @@ impl SarvamSTT {
             .header("api-subscription-key", api_key)
             .multipart(form)
             .send().await.map_err(|e| format!("STT request failed: {}", e))?;
-        if !resp.status().is_success() {
-            return Err(format!("Sarvam STT failed: {}", resp.text().await.unwrap_or_default()));
+        let status = resp.status().as_u16();
+        if status < 200 || status >= 300 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(map_sarvam_error(status, &body));
         }
         #[derive(Deserialize)]
         struct SttResponse { transcript: String, language_code: Option<String> }
@@ -48,8 +66,10 @@ impl SarvamTranslate {
             .header("api-subscription-key", api_key)
             .json(&body)
             .send().await.map_err(|e| format!("Translate request failed: {}", e))?;
-        if !resp.status().is_success() {
-            return Err(format!("Sarvam Translation failed: {}", resp.text().await.unwrap_or_default()));
+        let status = resp.status().as_u16();
+        if status < 200 || status >= 300 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(map_sarvam_error(status, &body));
         }
         #[derive(Deserialize)]
         struct TranslateResponse { translated_text: String }
@@ -69,8 +89,10 @@ impl SarvamTTS {
             .header("api-subscription-key", api_key)
             .json(&body)
             .send().await.map_err(|e| format!("TTS request failed: {}", e))?;
-        if !resp.status().is_success() {
-            return Err(format!("Sarvam TTS failed: {}", resp.text().await.unwrap_or_default()));
+        let status = resp.status().as_u16();
+        if status < 200 || status >= 300 {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(map_sarvam_error(status, &body));
         }
         #[derive(Deserialize)]
         struct TtsResponse { audios: Vec<String> }

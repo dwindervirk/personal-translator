@@ -12,7 +12,7 @@ use tower_http::cors::CorsLayer;
 static INDEX_HTML: &[u8] = include_bytes!("C:\\Users\\preet\\Documents\\projects\\personal-translator\\apps\\desktop\\dist\\index.html");
 static CSS: &[u8] = include_bytes!("C:\\Users\\preet\\Documents\\projects\\personal-translator\\apps\\desktop\\dist\\assets\\index-CEktmZl2.css");
 static CORE_JS: &[u8] = include_bytes!("C:\\Users\\preet\\Documents\\projects\\personal-translator\\apps\\desktop\\dist\\assets\\core-DhEqZVGG.js");
-static APP_JS: &[u8] = include_bytes!("C:\\Users\\preet\\Documents\\projects\\personal-translator\\apps\\desktop\\dist\\assets\\index-h-mI11Ku.js");
+static APP_JS: &[u8] = include_bytes!("C:\\Users\\preet\\Documents\\projects\\personal-translator\\apps\\desktop\\dist\\assets\\index-DrEoi_Cf.js");
 
 fn embedded_files() -> HashMap<&'static str, (&'static [u8], &'static str)> {
     let mut m = HashMap::new();
@@ -20,7 +20,7 @@ fn embedded_files() -> HashMap<&'static str, (&'static [u8], &'static str)> {
     m.insert("/index.html", (INDEX_HTML, "text/html"));
     m.insert("/assets/index-CEktmZl2.css", (CSS, "text/css"));
     m.insert("/assets/core-DhEqZVGG.js", (CORE_JS, "application/javascript"));
-    m.insert("/assets/index-h-mI11Ku.js", (APP_JS, "application/javascript"));
+    m.insert("/assets/index-DrEoi_Cf.js", (APP_JS, "application/javascript"));
     m
 }
 

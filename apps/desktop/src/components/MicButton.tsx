@@ -146,8 +146,9 @@ export function MicButton() {
         source.start(0);
       });
       dispatch(reset());
-    } catch (err) {
-      dispatch(setError(err instanceof Error ? err.message : "Translation failed"));
+      } catch (err) {
+        const message = typeof err === "string" ? err : err instanceof Error ? err.message : "Translation failed";
+        dispatch(setError(message));
     } finally {
       recorderRef.current = null;
       promiseRef.current = null;

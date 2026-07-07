@@ -1,4 +1,5 @@
 import type { ITTSProvider } from "@repo/shared";
+import { throwSarvamError } from "./errors";
 
 export class SarvamTTSProvider implements ITTSProvider {
   private apiKey: string;
@@ -28,7 +29,7 @@ export class SarvamTTSProvider implements ITTSProvider {
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Sarvam TTS failed (${response.status}): ${error}`);
+      throwSarvamError(response.status, error);
     }
 
     const result = (await response.json()) as { audios: string[] };

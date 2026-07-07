@@ -10,6 +10,29 @@ import { SarvamSTTProvider } from "./providers/sarvam/stt";
 import { SarvamTranslationProvider } from "./providers/sarvam/translate";
 import { SarvamTTSProvider } from "./providers/sarvam/tts";
 import { TranslationEngine } from "./engine";
+import { SarvamAuthError, SarvamRateLimitError, SarvamBalanceError } from "./providers/sarvam/errors";
+
+const MAX_RETRIES = 3;
+
+async function translateWithRetry(
+  engine: TranslationEngine,
+  audioBuffer: Buffer,
+  options: { sourceLanguage?: string; targetLanguage: string; voiceId?: string }
+): Promise<Buffer> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await engine.translateAudio(audioBuffer, options);
+    } catch (error) {
+      if (error instanceof SarvamRateLimitError && attempt < MAX_RETRIES - 1) {
+        const delay = 2000 * (attempt + 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new SarvamRateLimitError("Rate limit exceeded. Please wait a moment and try again.");
+}
 
 export async function main(options?: { port?: number; frontendPath?: string }) {
   const app = Fastify({ logger: true });
@@ -36,9 +59,25 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
     };
   }>("/api/translate", async (request, reply) => {
     try {
-      const data = await request.file();
-      if (!data) {
-        return reply.status(400).send({ error: "No audio file provided" });
+      let audioBuffer: Buffer;
+      let targetLanguage = request.query.targetLanguage ?? "en-IN";
+      const sourceLanguage = request.query.sourceLanguage;
+      const voiceId = request.query.voiceId;
+
+      const contentType = request.headers["content-type"] ?? "";
+
+      if (contentType.includes("application/json")) {
+        const body = request.body as { audio?: string };
+        if (!body?.audio) {
+          return reply.status(400).send({ error: "No audio data provided" });
+        }
+        audioBuffer = Buffer.from(body.audio, "base64");
+      } else {
+        const data = await request.file();
+        if (!data) {
+          return reply.status(400).send({ error: "No audio file provided" });
+        }
+        audioBuffer = await data.toBuffer();
       }
 
       const apiKey = request.headers["x-api-key"] ?? process.env.SARVAM_API_KEY;
@@ -48,30 +87,38 @@ export async function main(options?: { port?: number; frontendPath?: string }) {
         });
       }
 
-      const audioBuffer = await data.toBuffer();
-      const targetLanguage = request.query.targetLanguage ?? "en-IN";
-      const sourceLanguage = request.query.sourceLanguage;
-      const voiceId = request.query.voiceId;
-
       const sttProvider = new SarvamSTTProvider(apiKey);
       const translationProvider = new SarvamTranslationProvider(apiKey);
       const ttsProvider = new SarvamTTSProvider(apiKey);
-
       const engine = new TranslationEngine(sttProvider, translationProvider, ttsProvider);
 
-      const translatedAudio = await engine.translateAudio(audioBuffer, {
+      const translatedAudio = await translateWithRetry(engine, audioBuffer, {
         sourceLanguage,
         targetLanguage,
         voiceId,
       });
 
-      reply
-        .header("Content-Type", "audio/wav")
-        .header("Content-Length", translatedAudio.length)
-        .send(translatedAudio);
+      if (contentType.includes("application/json")) {
+        reply.send({ audio: translatedAudio.toString("base64") });
+      } else {
+        reply
+          .header("Content-Type", "audio/wav")
+          .header("Content-Length", translatedAudio.length)
+          .send(translatedAudio);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       app.log.error(message);
+
+      if (error instanceof SarvamAuthError) {
+        return reply.status(401).send({ error: message });
+      }
+      if (error instanceof SarvamRateLimitError) {
+        return reply.status(429).send({ error: message });
+      }
+      if (error instanceof SarvamBalanceError) {
+        return reply.status(402).send({ error: message });
+      }
       reply.status(500).send({ error: message });
     }
   });

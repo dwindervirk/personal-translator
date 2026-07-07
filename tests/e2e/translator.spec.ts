@@ -7,16 +7,21 @@ function selects(page: Page) {
   return { source: all.nth(0), target: all.nth(1) };
 }
 
-async function setApiKey(page: Page) {
+async function setApiKey(page: Page, key: string = "test-key") {
+  await page.evaluate((k) => {
+    localStorage.setItem("translator_api_key", k);
+  }, key);
+}
+
+async function clearApiKey(page: Page) {
   await page.evaluate(() => {
-    localStorage.setItem("translator_api_key", "test-key");
+    localStorage.removeItem("translator_api_key");
   });
 }
 
 test.describe("Personal Translator - UI Elements", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(BASE_URL);
-    // close the settings modal by pressing Escape
     await page.keyboard.press("Escape");
   });
 
@@ -49,6 +54,60 @@ test.describe("Personal Translator - Settings Modal", () => {
     await page.getByRole("button", { name: /save/i }).click();
     await page.waitForTimeout(200);
     await expect(page.getByText("Sarvam API Key", { exact: true })).not.toBeVisible();
+  });
+});
+
+test.describe("Personal Translator - Error Handling", () => {
+  test("shows error when starting recording without API key", async ({ page }) => {
+    await page.goto(BASE_URL);
+    await clearApiKey(page);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    // Close the settings modal by clicking the close (X) button
+    const closeBtn = page.locator(".fixed button").first();
+    if (await closeBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await closeBtn.click();
+      await page.waitForTimeout(500);
+    }
+
+    await page.getByRole("button", { name: /start recording/i }).click();
+    await expect(page.getByText(/No API key configured/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test("shows error banner when invalid API key is used", async ({ page }) => {
+    await page.goto(BASE_URL);
+    await setApiKey(page, "sk_invalid_key");
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("button", { name: /start recording/i }).click();
+    await expect(page.getByRole("button", { name: /stop recording/i })).toBeVisible();
+    await page.waitForTimeout(500);
+    await page.getByRole("button", { name: /stop recording/i }).click();
+
+    await page.waitForTimeout(8000);
+    const errorBanner = page.locator("text=Your API key is invalid");
+    await expect(errorBanner).toBeVisible({ timeout: 15000 });
+  });
+
+  test("error banner has a dismiss button", async ({ page }) => {
+    await page.goto(BASE_URL);
+    await clearApiKey(page);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+    // Close the settings modal
+    const closeBtn = page.locator(".fixed button").first();
+    if (await closeBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await closeBtn.click();
+      await page.waitForTimeout(500);
+    }
+
+    await page.getByRole("button", { name: /start recording/i }).click();
+    await page.waitForTimeout(500);
+    const dismissBtn = page.getByRole("button", { name: /dismiss/i });
+    await expect(dismissBtn).toBeVisible({ timeout: 5000 });
+    await dismissBtn.click();
+    await expect(dismissBtn).not.toBeVisible();
   });
 });
 
