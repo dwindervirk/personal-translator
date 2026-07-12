@@ -4,7 +4,6 @@ import { saveApiKey, clearApiKeyAction, setShowSettings, setSelectedProvider } f
 
 const PROVIDERS = [
   { id: "sarvam", label: "Sarvam AI", keyPrefix: "sk_", placeholder: "Enter your Sarvam AI API key" },
-  { id: "gemini", label: "Google Gemini", keyPrefix: "", placeholder: "Paste your Gemini API key from Google AI Studio" },
 ];
 
 function validateKey(providerId: string, key: string, apiKeys: Record<string, string>): string | null {
@@ -100,22 +99,19 @@ export function SettingsModal() {
         </div>
 
         {!hasAnyKey && (
-          <div className="mb-4 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2.5 text-sm text-warning">
-            <span className="mr-1.5 inline-block size-1.5 rounded-full bg-warning" />
-            An API key is required for translation to work.
+          <div className="mb-4 rounded-lg border border-warning/30 bg-warning-muted px-3 py-2.5 text-center text-sm text-warning">
+            An API key is required for translation to work
           </div>
         )}
 
         {hasAnyKey && !currentProviderHasKey && (
-          <div className="mb-4 rounded-lg border border-info/30 bg-info-muted px-3 py-2.5 text-sm text-info">
-            <span className="mr-1.5 inline-block size-1.5 rounded-full bg-info" />
+          <div className="mb-4 rounded-lg border border-info/30 bg-info-muted px-3 py-2.5 text-center text-sm text-info">
             This provider has no key saved. Add one to use it.
           </div>
         )}
 
         {pendingClearProvider === selectedProvider && (
-          <div className="mb-4 rounded-lg border border-error/30 bg-error-muted px-3 py-2.5 text-sm text-error">
-            <span className="mr-1.5 inline-block size-1.5 rounded-full bg-error" />
+          <div className="mb-4 rounded-lg border border-error/30 bg-error-muted px-3 py-2.5 text-center text-sm text-error">
             Press "Clear" again to remove this key.
           </div>
         )}
