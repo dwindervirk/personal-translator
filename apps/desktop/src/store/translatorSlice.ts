@@ -27,7 +27,7 @@ function storageKey(provider: string): string {
 
 export const loadApiKeys = createAsyncThunk("translator/loadApiKeys", async () => {
   const keys: Record<string, string> = {};
-  for (const provider of ["sarvam", "gemini"]) {
+  for (const provider of ["sarvam"]) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const key: string | null = await invoke("get_api_key", { provider });
