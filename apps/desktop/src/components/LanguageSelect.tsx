@@ -3,7 +3,7 @@ import {
   setSourceLanguage,
   setTargetLanguage,
 } from "@/store/translatorSlice";
-import { INDIAN_LANGUAGES, GLOBAL_LANGUAGES } from "@/lib/languages";
+import { INDIAN_LANGUAGES } from "@/lib/languages";
 
 interface Props {
   type: "source" | "target";
@@ -11,11 +11,11 @@ interface Props {
 
 export function LanguageSelect({ type }: Props) {
   const dispatch = useAppDispatch();
-  const { sourceLanguage, targetLanguage, selectedProvider } = useAppSelector(
+  const { sourceLanguage, targetLanguage } = useAppSelector(
     (state) => state.translator
   );
   const value = type === "source" ? sourceLanguage : targetLanguage;
-  const languages = selectedProvider === "gemini" ? GLOBAL_LANGUAGES : INDIAN_LANGUAGES;
+  const languages = INDIAN_LANGUAGES;
 
   const onChange = (code: string) => {
     if (type === "source") {
