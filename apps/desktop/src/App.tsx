@@ -18,8 +18,7 @@ function ConfigWarning() {
   if (hasAnyKey) return null;
 
   return (
-    <div className="animate-fade-in w-full rounded-lg border border-warning/30 bg-warning-muted px-4 py-3 text-center text-sm text-warning">
-      <span className="mr-1 inline-block size-1.5 rounded-full bg-warning" />
+    <div className="animate-fade-in w-full rounded-lg border border-warning/30 bg-warning-muted px-4 py-2.5 text-center text-xs text-warning">
       An API key is required for translation.{" "}
       <button
         onClick={() => dispatch(setShowSettings(true))}
@@ -41,7 +40,6 @@ function ProviderBadge() {
 
   const labels: Record<string, string> = {
     sarvam: "Sarvam AI",
-    gemini: "Google Gemini",
   };
 
   const sortedProviders = [...savedProviders].sort(([a], [b]) =>
