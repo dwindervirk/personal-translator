@@ -2,13 +2,13 @@
 
 import { useEffect } from "react";
 import { useAppDispatch } from "@/store/hooks";
-import { loadApiKey } from "@/store/translatorSlice";
+import { loadApiKeys } from "@/store/translatorSlice";
 
 export function AppInit({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch();
 
   useEffect(() => {
-    dispatch(loadApiKey());
+    dispatch(loadApiKeys());
   }, [dispatch]);
 
   return <>{children}</>;
