@@ -9,6 +9,7 @@ import { SettingsModal } from "@/components/SettingsModal";
 import { SettingsButton } from "@/components/SettingsButton";
 import { LogPanel } from "@/components/LogPanel";
 import { setSelectedProvider, setShowSettings } from "@/store/translatorSlice";
+import { useEffect } from "react";
 
 function ConfigWarning() {
   const { apiKeys } = useAppSelector((state) => state.translator);
@@ -33,13 +34,24 @@ function ConfigWarning() {
 
 function ProviderBadge() {
   const dispatch = useAppDispatch();
-  const { apiKeys, selectedProvider } = useAppSelector((state) => state.translator);
+  const { apiKeys, selectedProvider, showSettings } = useAppSelector((state) => state.translator);
   const savedProviders = Object.entries(apiKeys).filter(([, v]) => v);
+
+  useEffect(() => {
+    if (showSettings) return;
+    if (savedProviders.length === 1) {
+      const [id] = savedProviders[0];
+      if (id !== selectedProvider) {
+        dispatch(setSelectedProvider(id));
+      }
+    }
+  }, [apiKeys, selectedProvider, showSettings, dispatch]);
 
   if (savedProviders.length === 0) return null;
 
   const labels: Record<string, string> = {
     sarvam: "Sarvam AI",
+    gemini: "Google Gemini",
   };
 
   const sortedProviders = [...savedProviders].sort(([a], [b]) =>
@@ -50,7 +62,6 @@ function ProviderBadge() {
     const [id] = savedProviders[0];
     return (
       <div className="animate-fade-in rounded-full border border-primary/30 bg-primary-muted px-3 py-1 text-xs text-primary">
-        <span className="mr-1.5 inline-block size-1.5 rounded-full bg-primary" />
         {labels[id] ?? id}
       </div>
     );

@@ -27,7 +27,7 @@ function storageKey(provider: string): string {
 
 export const loadApiKeys = createAsyncThunk("translator/loadApiKeys", async () => {
   const keys: Record<string, string> = {};
-  for (const provider of ["sarvam"]) {
+  for (const provider of ["sarvam", "gemini"]) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const key: string | null = await invoke("get_api_key", { provider });
@@ -102,6 +102,13 @@ export const translatorSlice = createSlice({
         const hasAny = Object.values(action.payload).some(Boolean);
         state.showSettings = !hasAny;
         state.loading = false;
+        if (!state.apiKeys[state.selectedProvider]) {
+          const remaining = Object.keys(state.apiKeys).filter((k) => state.apiKeys[k]);
+          if (remaining.length > 0) {
+            state.selectedProvider = remaining.includes("gemini") ? "gemini" : remaining[0];
+            try { localStorage.setItem("translator_selected_provider", state.selectedProvider); } catch {}
+          }
+        }
       })
       .addCase(loadApiKeys.rejected, (state) => { state.loading = false; })
       .addCase(saveApiKey.fulfilled, (state, action) => {
@@ -111,7 +118,16 @@ export const translatorSlice = createSlice({
       })
       .addCase(clearApiKeyAction.fulfilled, (state, action) => {
         delete state.apiKeys[action.payload];
-        if (Object.keys(state.apiKeys).length === 0) state.showSettings = true;
+        const remaining = Object.keys(state.apiKeys).filter((k) => state.apiKeys[k]);
+        if (remaining.length === 0) {
+          state.showSettings = true;
+        } else {
+          if (!state.apiKeys[state.selectedProvider]) {
+            const best = remaining.includes("gemini") ? "gemini" : remaining[0];
+            state.selectedProvider = best;
+            try { localStorage.setItem("translator_selected_provider", best); } catch {}
+          }
+        }
       });
   },
 });

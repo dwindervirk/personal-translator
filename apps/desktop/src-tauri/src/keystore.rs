@@ -1,12 +1,10 @@
 // Android Keystore integration for secure API key storage.
 //
 // On Android: Uses EncryptedSharedPreferences via the KeystoreHelper.kt Kotlin class.
-//   The JNI bridge calls KeystoreHelper.save/load/clear static methods through the
-//   JNI layer. The JavaVM pointer is captured in JNI_OnLoad when the library loads.
+//   The JNI bridge calls KeystoreHelper.save/load/clear static methods with a provider
+//   parameter so each provider (sarvam, gemini) gets its own encrypted storage key.
 //
 // On Desktop: Falls back to localStorage in the WebView (handled by the frontend).
-//   The Tauri commands save/load/clear_api_key are registered but storage is
-//   delegated to the frontend via the Redux store.
 
 #[cfg(target_os = "android")]
 use std::sync::OnceLock;
@@ -20,7 +18,6 @@ pub extern "system" fn JNI_OnLoad(
     vm: *mut jni::sys::JavaVM,
     _: *mut std::ffi::c_void,
 ) -> jni::sys::jint {
-    // Safety: JNI_OnLoad receives a valid JavaVM pointer from the JVM
     match unsafe { jni::JavaVM::from_raw(vm) } {
         Ok(jvm) => {
             log::info!("keystore::JNI_OnLoad: JavaVM captured successfully");
@@ -51,84 +48,98 @@ mod android_keystore {
         f(&mut guard)
     }
 
-    pub fn save(api_key: &str) -> Result<(), String> {
-        log::info!("keystore::save called");
+    pub fn save(provider: &str, api_key: &str) -> Result<(), String> {
+        log::info!("keystore::save called for provider={}", provider);
         with_jni_env(|env| {
             let class = env
                 .find_class("com/personaltranslator/app/KeystoreHelper")
                 .map_err(|e| format!("KeystoreHelper class not found: {}", e))?;
 
+            let j_provider = env
+                .new_string(provider)
+                .map_err(|e| format!("Failed to create provider string: {}", e))?;
             let j_key = env
                 .new_string(api_key)
-                .map_err(|e| format!("Failed to create JNI string: {}", e))?;
+                .map_err(|e| format!("Failed to create key string: {}", e))?;
 
             let result = env
                 .call_static_method(
                     &class,
                     "save",
-                    "(Ljava/lang/String;)Z",
-                    &[(&j_key).into()],
+                    "(Ljava/lang/String;Ljava/lang/String;)Z",
+                    &[(&j_provider).into(), (&j_key).into()],
                 )
                 .map_err(|e| format!("KeystoreHelper.save() failed: {}", e))?;
 
             if result.z().map_err(|e| format!("Failed to extract bool: {}", e))? {
                 Ok(())
             } else {
-                Err("KeystoreHelper.save() returned false (prefs not initialized)".to_string())
+                Err("KeystoreHelper.save() returned false".to_string())
             }
         })
     }
 
-    pub fn load() -> Result<Option<String>, String> {
-        log::info!("keystore::load called");
+    pub fn load(provider: &str) -> Result<Option<String>, String> {
+        log::info!("keystore::load called for provider={}", provider);
         with_jni_env(|env| {
             let class = env
                 .find_class("com/personaltranslator/app/KeystoreHelper")
-                .map_err(|e| {
-                    log::error!("keystore::load: find_class failed: {}", e);
-                    format!("KeystoreHelper class not found: {}", e)
-                })?;
+                .map_err(|e| format!("KeystoreHelper class not found: {}", e))?;
+
+            let j_provider = env
+                .new_string(provider)
+                .map_err(|e| format!("Failed to create provider string: {}", e))?;
 
             let result = env
-                .call_static_method(&class, "load", "()Ljava/lang/String;", &[])
-                .map_err(|e| {
-                    log::error!("keystore::load: call_static_method failed: {}", e);
-                    format!("KeystoreHelper.load() failed: {}", e)
-                })?;
+                .call_static_method(
+                    &class,
+                    "load",
+                    "(Ljava/lang/String;)Ljava/lang/String;",
+                    &[(&j_provider).into()],
+                )
+                .map_err(|e| format!("KeystoreHelper.load() failed: {}", e))?;
 
             let j_obj = result.l().map_err(|e| {
-                log::error!("keystore::load: extract object failed: {}", e);
                 format!("Failed to extract object: {}", e)
             })?;
 
             if j_obj.is_null() {
-                log::info!("keystore::load: no key found");
+                log::info!("keystore::load: no key found for provider={}", provider);
                 return Ok(None);
             }
 
             let jstr = jni::objects::JString::from(j_obj);
             let java_str = env.get_string(&jstr).map_err(|e| {
-                log::error!("keystore::load: get_string failed: {}", e);
                 format!("Failed to read string: {}", e)
             })?;
             Ok(Some(java_str.into()))
         })
     }
 
-    pub fn clear() -> Result<(), String> {
+    pub fn clear(provider: &str) -> Result<(), String> {
+        log::info!("keystore::clear called for provider={}", provider);
         with_jni_env(|env| {
             let class = env
                 .find_class("com/personaltranslator/app/KeystoreHelper")
                 .map_err(|e| format!("KeystoreHelper class not found: {}", e))?;
 
+            let j_provider = env
+                .new_string(provider)
+                .map_err(|e| format!("Failed to create provider string: {}", e))?;
+
             let result = env
-                .call_static_method(&class, "clear", "()Z", &[])
+                .call_static_method(
+                    &class,
+                    "clear",
+                    "(Ljava/lang/String;)Z",
+                    &[(&j_provider).into()],
+                )
                 .map_err(|e| format!("KeystoreHelper.clear() failed: {}", e))?;
 
             if result.z().map_err(|e| format!("Failed to extract bool: {}", e))? {
                 Ok(())
             } else {
-                Err("KeystoreHelper.clear() returned false (prefs not initialized)".to_string())
+                Err("KeystoreHelper.clear() returned false".to_string())
             }
         })
     }
@@ -136,15 +147,13 @@ mod android_keystore {
 
 #[cfg(not(target_os = "android"))]
 mod desktop_keystore {
-    pub fn save(_api_key: &str) -> Result<(), String> {
+    pub fn save(_provider: &str, _api_key: &str) -> Result<(), String> {
         Ok(())
     }
-
-    pub fn load() -> Result<Option<String>, String> {
+    pub fn load(_provider: &str) -> Result<Option<String>, String> {
         Ok(None)
     }
-
-    pub fn clear() -> Result<(), String> {
+    pub fn clear(_provider: &str) -> Result<(), String> {
         Ok(())
     }
 }

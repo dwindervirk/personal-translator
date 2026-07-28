@@ -1,5 +1,8 @@
 use base64::Engine;
 
+mod audio;
+mod gemini;
+mod gemini_translate;
 mod keystore;
 mod translate;
 
@@ -18,7 +21,9 @@ pub fn run() {
             save_api_key,
             get_api_key,
             clear_api_key,
-            translate_audio
+            translate_audio,
+            translate_text,
+            translate_audio_gemini
         ])
         .setup(|app| {
             #[cfg(target_os = "android")]
@@ -34,7 +39,7 @@ pub fn run() {
 
             #[cfg(target_os = "android")]
             {
-                let port = server::start_server(Some(3001));
+                let port = server::start_server(Some(3004));
                 let _ = &port;
             }
 
@@ -86,24 +91,23 @@ pub fn run() {
 }
 
 #[tauri::command]
-fn save_api_key(key: String) -> Result<(), String> {
-    keystore::save(&key)
+fn save_api_key(provider: String, key: String) -> Result<(), String> {
+    keystore::save(&provider, &key)
 }
 
 #[tauri::command]
-fn get_api_key() -> Result<Option<String>, String> {
-    keystore::load()
+fn get_api_key(provider: String) -> Result<Option<String>, String> {
+    keystore::load(&provider)
 }
 
 #[tauri::command]
-fn clear_api_key() -> Result<(), String> {
-    keystore::clear()
+fn clear_api_key(provider: String) -> Result<(), String> {
+    keystore::clear(&provider)
 }
 
 const MAX_RETRIES: u32 = 3;
 
 fn clean_error(msg: &str) -> String {
-    // Strip prefixes like AUTH_ERROR:, RATE_LIMIT:, BALANCE_ERROR:
     if let Some(pos) = msg.find(": ") {
         msg[pos + 2..].to_string()
     } else {
@@ -112,30 +116,72 @@ fn clean_error(msg: &str) -> String {
 }
 
 #[tauri::command]
-async fn translate_audio(api_key: String, audio_b64: String, target_language: String) -> Result<String, String> {
+async fn translate_audio(
+    api_key: String,
+    audio_b64: String,
+    target_language: String,
+    provider: Option<String>,
+    source_language: Option<String>,
+) -> Result<String, String> {
     let audio_data = base64::engine::general_purpose::STANDARD
         .decode(audio_b64.as_bytes())
         .map_err(|e| format!("Invalid base64 audio: {}", e))?;
 
-    let engine = translate::TranslationEngine::new();
-    let mut last_error = String::new();
+    let provider = provider.as_deref().unwrap_or("sarvam");
 
-    for attempt in 0..MAX_RETRIES {
-        let result = engine.translate_audio(&api_key, &audio_data, None, &target_language).await;
-        match &result {
-            Ok(audio_bytes) => {
-                return Ok(base64::engine::general_purpose::STANDARD.encode(audio_bytes));
+    match provider {
+        "gemini" => {
+            let translator = gemini::GeminiLiveTranslator::new(api_key);
+            let result = translator.translate_audio(&audio_data, &target_language).await?;
+            Ok(base64::engine::general_purpose::STANDARD.encode(&result))
+        }
+        _ => {
+            let engine = translate::TranslationEngine::new();
+            let mut last_error = String::new();
+
+            for attempt in 0..MAX_RETRIES {
+                let result = engine
+                    .translate_audio(&api_key, &audio_data, source_language.as_deref(), &target_language)
+                    .await;
+                match &result {
+                    Ok(audio_bytes) => {
+                        return Ok(base64::engine::general_purpose::STANDARD.encode(audio_bytes));
+                    }
+                    Err(e) if e.starts_with("RATE_LIMIT:") && attempt < MAX_RETRIES - 1 => {
+                        let delay = std::time::Duration::from_secs((2 * (attempt + 1)).into());
+                        tokio::time::sleep(delay).await;
+                        last_error = clean_error(e);
+                    }
+                    Err(e) => {
+                        return Err(clean_error(e));
+                    }
+                }
             }
-            Err(e) if e.starts_with("RATE_LIMIT:") && attempt < MAX_RETRIES - 1 => {
-                let delay = std::time::Duration::from_secs((2 * (attempt + 1)).into());
-                tokio::time::sleep(delay).await;
-                last_error = clean_error(e);
-            }
-            Err(e) => {
-                return Err(clean_error(e));
-            }
+            Err(last_error)
         }
     }
+}
 
-    Err(last_error)
+#[tauri::command]
+async fn translate_text(
+    api_key: String,
+    text: String,
+    source_language: Option<String>,
+    target_language: String,
+) -> Result<String, String> {
+    let source_lang = source_language.as_deref().unwrap_or("unknown");
+    let result = gemini_translate::translate_text(&api_key, &text, source_lang, &target_language).await?;
+    Ok(result.translated_text)
+}
+
+#[tauri::command]
+async fn translate_audio_gemini(
+    api_key: String,
+    audio_b64: String,
+    source_language: Option<String>,
+    target_language: String,
+) -> Result<String, String> {
+    let source_lang = source_language.as_deref().unwrap_or("unknown");
+    let result = gemini_translate::translate_audio(&api_key, &audio_b64, source_lang, &target_language).await?;
+    Ok(result.translated_text)
 }

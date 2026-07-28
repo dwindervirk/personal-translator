@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { saveApiKey, clearApiKeyAction, setShowSettings, setSelectedProvider } from "@/store/translatorSlice";
+import { store } from "@/store";
 
 const PROVIDERS = [
   { id: "sarvam", label: "Sarvam AI", keyPrefix: "sk_", placeholder: "Enter your Sarvam AI API key" },
+  { id: "gemini", label: "Google Gemini", keyPrefix: "AIza", placeholder: "Paste your Gemini API key from Google AI Studio" },
 ];
 
 function validateKey(providerId: string, key: string, apiKeys: Record<string, string>): string | null {
@@ -12,8 +14,17 @@ function validateKey(providerId: string, key: string, apiKeys: Record<string, st
   if (providerId === "sarvam" && !trimmed.startsWith("sk_")) {
     return "Sarvam key should start with \"sk_\"";
   }
+  if (providerId === "gemini") {
+    if (trimmed.length < 20) {
+      return "The API key is too short. Please verify you copied the entire key.";
+    }
+    const hasValidPrefix = trimmed.startsWith("AIza") || trimmed.startsWith("AQ.");
+    if (!hasValidPrefix) {
+      return "Invalid key format. Gemini API keys must start with 'AIza' or 'AQ.'.";
+    }
+  }
   for (const [p, k] of Object.entries(apiKeys)) {
-    if (p !== providerId && k === trimmed) return "This key is already saved for another provider";
+    if (p !== providerId && k === trimmed) return "This API key is already configured for another provider.";
   }
   return null;
 }
@@ -56,14 +67,25 @@ export function SettingsModal() {
     if (pendingClearProvider === selectedProvider) {
       setInputValue("");
       dispatch(clearApiKeyAction({ provider: selectedProvider }));
+      const remaining = Object.keys(apiKeys).filter((k) => k !== selectedProvider && apiKeys[k]);
+      if (remaining.length > 0) {
+        const best = remaining.includes("gemini") ? "gemini" : remaining[0];
+        dispatch(setSelectedProvider(best));
+      }
       setPendingClearProvider(null);
     } else {
       setPendingClearProvider(selectedProvider);
     }
-  }, [selectedProvider, pendingClearProvider, dispatch]);
+  }, [selectedProvider, pendingClearProvider, apiKeys, dispatch]);
 
   const handleClose = useCallback(() => {
     if (pendingClearProvider) setPendingClearProvider(null);
+    const freshState = store.getState().translator;
+    const remaining = Object.keys(freshState.apiKeys).filter((k) => freshState.apiKeys[k]);
+    if (remaining.length > 0 && !freshState.apiKeys[freshState.selectedProvider]) {
+      const best = remaining.includes("gemini") ? "gemini" : remaining[0];
+      dispatch(setSelectedProvider(best));
+    }
     dispatch(setShowSettings(false));
   }, [dispatch, pendingClearProvider]);
 
@@ -112,7 +134,7 @@ export function SettingsModal() {
 
         {pendingClearProvider === selectedProvider && (
           <div className="mb-4 rounded-lg border border-error/30 bg-error-muted px-3 py-2.5 text-center text-sm text-error">
-            Press "Clear" again to remove this key.
+            Press "Clear" again to remove this key
           </div>
         )}
 

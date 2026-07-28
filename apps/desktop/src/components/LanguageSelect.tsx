@@ -3,7 +3,7 @@ import {
   setSourceLanguage,
   setTargetLanguage,
 } from "@/store/translatorSlice";
-import { INDIAN_LANGUAGES } from "@/lib/languages";
+import { INDIAN_LANGUAGES, GLOBAL_LANGUAGES } from "@/lib/languages";
 
 interface Props {
   type: "source" | "target";
@@ -11,11 +11,12 @@ interface Props {
 
 export function LanguageSelect({ type }: Props) {
   const dispatch = useAppDispatch();
-  const { sourceLanguage, targetLanguage } = useAppSelector(
+  const { sourceLanguage, targetLanguage, selectedProvider, apiKeys } = useAppSelector(
     (state) => state.translator
   );
   const value = type === "source" ? sourceLanguage : targetLanguage;
-  const languages = INDIAN_LANGUAGES;
+  const languages = selectedProvider === "gemini" ? GLOBAL_LANGUAGES : INDIAN_LANGUAGES;
+  const hasAnyKey = Object.values(apiKeys).some(Boolean);
 
   const onChange = (code: string) => {
     if (type === "source") {
@@ -30,14 +31,19 @@ export function LanguageSelect({ type }: Props) {
 
   return (
     <div className="flex flex-1 flex-col gap-1.5">
-      <span className="text-xs font-medium text-muted">
+      <span className={`text-xs font-medium ${hasAnyKey ? "text-muted" : "text-muted/40"}`}>
         {type === "source" ? "From" : "To"}
       </span>
       <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none rounded-lg border border-border bg-surface px-3 py-2.5 pr-8 text-sm text-ink transition-colors duration-150 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30"
+          disabled={!hasAnyKey}
+          className={`w-full appearance-none rounded-lg border px-3 py-2.5 pr-8 text-sm transition-colors duration-150 focus:outline-none ${
+            hasAnyKey
+              ? "border-border bg-surface text-ink focus:border-primary focus:ring-1 focus:ring-primary/30 cursor-pointer"
+              : "border-border/50 bg-surface/50 text-muted/40 cursor-not-allowed"
+          }`}
         >
           {(type === "source" ? sourceLanguages : targetLanguages).map((lang) => (
             <option key={lang.code} value={lang.code} className="bg-surface text-ink">
@@ -46,7 +52,7 @@ export function LanguageSelect({ type }: Props) {
           ))}
         </select>
         <svg
-          className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted"
+          className={`pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 ${hasAnyKey ? "text-muted" : "text-muted/20"}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
