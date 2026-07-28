@@ -21,8 +21,14 @@ export interface ITTSProvider {
   ): Promise<Buffer>;
 }
 
-export type STTProviderName = "sarvam";
-export type TranslationProviderName = "sarvam";
+export interface IGeminiTranslateProvider {
+  translateAudio(audioData: Buffer, targetLanguage: string): Promise<Buffer>;
+}
+
+export type ProviderName = "sarvam" | "gemini";
+
+export type STTProviderName = ProviderName;
+export type TranslationProviderName = ProviderName;
 export type TTSProviderName = "sarvam";
 
 export interface ProviderConfig {

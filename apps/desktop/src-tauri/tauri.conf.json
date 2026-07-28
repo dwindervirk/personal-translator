@@ -5,9 +5,9 @@
   "identifier": "com.personaltranslator.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:3001",
+    "devUrl": "http://127.0.0.1:3002",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": ""
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [

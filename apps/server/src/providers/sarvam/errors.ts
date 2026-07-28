@@ -1,14 +1,8 @@
-export class SarvamAuthError extends Error {
-  name = "SarvamAuthError";
-}
+import { ProviderAuthError, ProviderRateLimitError, ProviderBalanceError } from "../errors";
 
-export class SarvamRateLimitError extends Error {
-  name = "SarvamRateLimitError";
-}
-
-export class SarvamBalanceError extends Error {
-  name = "SarvamBalanceError";
-}
+export class SarvamAuthError extends ProviderAuthError {}
+export class SarvamRateLimitError extends ProviderRateLimitError {}
+export class SarvamBalanceError extends ProviderBalanceError {}
 
 export function throwSarvamError(status: number, body: string): never {
   if (status === 401 || status === 403) {

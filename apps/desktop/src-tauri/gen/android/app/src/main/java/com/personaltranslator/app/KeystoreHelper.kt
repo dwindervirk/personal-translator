@@ -7,7 +7,6 @@ import androidx.security.crypto.MasterKeys
 
 object KeystoreHelper {
     private const val PREF_NAME = "secure_prefs"
-    private const val KEY_API_KEY = "translator_api_key"
 
     private var prefs: SharedPreferences? = null
 
@@ -24,22 +23,22 @@ object KeystoreHelper {
     }
 
     @JvmStatic
-    fun save(apiKey: String): Boolean {
+    fun save(provider: String, apiKey: String): Boolean {
         val p = prefs ?: return false
-        p.edit().putString(KEY_API_KEY, apiKey).apply()
+        p.edit().putString("translator_api_key_$provider", apiKey).apply()
         return true
     }
 
     @JvmStatic
-    fun load(): String? {
+    fun load(provider: String): String? {
         val p = prefs ?: return null
-        return p.getString(KEY_API_KEY, null)
+        return p.getString("translator_api_key_$provider", null)
     }
 
     @JvmStatic
-    fun clear(): Boolean {
+    fun clear(provider: String): Boolean {
         val p = prefs ?: return false
-        p.edit().remove(KEY_API_KEY).apply()
+        p.edit().remove("translator_api_key_$provider").apply()
         return true
     }
 }
