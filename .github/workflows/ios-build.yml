@@ -1,0 +1,50 @@
+name: Build iOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './apps/desktop/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Install CocoaPods
+        run: brew install cocoapods || true
+
+      - name: Initialize iOS target
+        working-directory: apps/desktop
+        run: npx tauri ios init --ci
+
+      - name: Build iOS app (simulator)
+        working-directory: apps/desktop
+        run: npx tauri ios build --ci --target aarch64-sim --export-method debugging
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: apps/desktop/src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: warn
